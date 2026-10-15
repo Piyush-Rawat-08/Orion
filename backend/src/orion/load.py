@@ -156,3 +156,19 @@ def alias_pairs(w: World) -> list[tuple[str, str, str]]:
         by_text.setdefault(t, set()).add(u)
     return [(t, u, k) for t, u, k in pairs if len(by_text[t]) == 1 or k != "Person"]
 
+
+
+def reset(db: dbm.DB, tenant: str = "corvane") -> dict:
+    """Drop everything a tenant has (epochs, universes, the deck, memories, counters) and load it fresh."""
+    from orion import epoch as ep
+    from orion.world import corvane
+
+    for prefix in (f"epoch:{tenant}:", f"universe:{tenant}:", f"deck:{tenant}", f"mem:{tenant}:"):
+        for g in db.graphs(prefix):
+            db.delete(g)
+    for k in db.redis.keys(f"orion:{tenant}:*") + db.redis.keys(f"orion:epoch:epoch:{tenant}:*"):
+        db.redis.delete(k)
+    stats = load(db, corvane.build())
+    built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
+    db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")
+    return stats | {"epoch_ms": built["ms"]}

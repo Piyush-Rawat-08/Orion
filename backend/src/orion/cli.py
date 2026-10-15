@@ -16,18 +16,11 @@ out = Console()
 
 @app.command()
 def reset(tenant: str = "corvane"):
-    """Load Corvane from its generator, drop every epoch, universe and the board, and build epoch:now."""
+    """Load Corvane from its generator; drop every epoch, universe, memory and the deck; build epoch:now."""
     from orion import load
-    from orion.world import corvane
 
-    db = dbm.get_db()
-    for prefix in (f"epoch:{tenant}:", f"universe:{tenant}:", f"deck:{tenant}", f"mem:{tenant}:"):
-        for g in db.graphs(prefix):
-            db.delete(g)
-    stats = load.load(db, corvane.build())
-    built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
-    db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")
-    out.print(f"[bold]org:{tenant}[/] {stats['nodes']} nodes, {stats['edges']} relationships; epoch:now in {built['ms']} ms")
+    stats = load.reset(dbm.get_db(), tenant)
+    out.print(f"[bold]org:{tenant}[/] {stats['nodes']} nodes, {stats['edges']} relationships; epoch:now in {stats['epoch_ms']} ms")
 
 
 @app.command()
