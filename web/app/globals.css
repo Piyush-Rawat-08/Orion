@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/* Observatory palette: a night sky, starlight for ink, one warm accent for what you can touch, and nova red
+   reserved for things that break. Team hues come from narrowband nebula filters. */
+:root {
+  --void: #04050a;
+  --deep: #070a13;
+  --surface: #0b0f1c;
+  --raised: #111628;
+  --line: rgba(236, 232, 220, 0.09);
+  --line-strong: rgba(236, 232, 220, 0.18);
+  --ink: #ece8dc;
+  --muted: #9096a8;
+  --faint: #5d6377;
+  --amber: #ffb547;
+  --nova: #ff4d2e;
+  --degrade: #ff9a3c;
+  --stale: #7f8fb3;
+  --ok: #7ee0b5;
+
+  --team-platform: #6f9bff;
+  --team-billing: #f4d35e;
+  --team-runtime: #3fd8c2;
+  --team-signals: #b48cff;
+  --team-console: #ff6f9f;
+  --team-data: #9be36d;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-sym: cubic-bezier(0.65, 0, 0.35, 1);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-void: var(--void);
+  --color-deep: var(--deep);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-amber: var(--amber);
+  --color-nova: var(--nova);
+  --color-degrade: var(--degrade);
+  --color-stale: var(--stale);
+  --color-ok: var(--ok);
+  --color-line: var(--line);
+  --font-display: var(--font-serif), "Times New Roman", serif;
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+::selection {
+  background: rgba(255, 181, 71, 0.35);
+  color: var(--ink);
+}
+
+/* film grain over everything: keeps big dark fields from looking flat */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: -50%;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: grain 1.2s steps(6) infinite;
+}
+
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-3%, 2%); }
+  40% { transform: translate(2%, -3%); }
+  60% { transform: translate(-2%, -1%); }
+  80% { transform: translate(3%, 3%); }
+  100% { transform: translate(0, 0); }
+}
+
+.mono { font-family: var(--font-mono); font-feature-settings: "zero" 1; }
+.display { font-family: var(--font-display); letter-spacing: -0.02em; }
+
+/* glass that reads like an instrument panel rather than a frosted card */
+.panel {
+  background: linear-gradient(180deg, rgba(17, 22, 40, 0.78), rgba(9, 12, 22, 0.82));
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(236, 232, 220, 0.06), 0 30px 80px -40px rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.hairline { border-color: var(--line); }
+
+.scroll-quiet { scrollbar-width: thin; scrollbar-color: rgba(236, 232, 220, 0.14) transparent; }
+.scroll-quiet::-webkit-scrollbar { width: 6px; height: 6px; }
+.scroll-quiet::-webkit-scrollbar-thumb { background: rgba(236, 232, 220, 0.14); border-radius: 3px; }
+
+/* reticle corners on focused instruments */
+.reticle { position: relative; }
+.reticle::before,
+.reticle::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: rgba(255, 181, 71, 0.7);
+  pointer-events: none;
+}
+.reticle::before { top: -1px; left: -1px; border-top: 1px solid; border-left: 1px solid; }
+.reticle::after { bottom: -1px; right: -1px; border-bottom: 1px solid; border-right: 1px solid; }
+
+:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grain::after { animation: none; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

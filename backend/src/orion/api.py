@@ -90,6 +90,13 @@ def personas(tenant: str):
     return rows
 
 
+@app.get("/api/{tenant}/census")
+def census(tenant: str):
+    """How much is in the company graph (open: the landing page counts up to it)."""
+    row = db().one(dbm.org(tenant), "MATCH (n) WITH count(n) AS nodes MATCH ()-[r]->() RETURN nodes, count(r) AS edges")
+    return row or {"nodes": 0, "edges": 0}
+
+
 class Login(BaseModel):
     person: str
 

@@ -13,3 +13,6 @@ node_modules/
 .env.local
 *.rdb
 backend/data/cache/
+next-env.d.ts
+web/AGENTS.md
+web/CLAUDE.md

@@ -16,8 +16,15 @@ def galaxy(db: dbm.DB, g: str) -> dict:
                            OPTIONAL MATCH (p:Person)-[:KNOWS]->(s)
                            RETURN s.uid AS id, s.name AS label, s.tier AS tier, s.lang AS lang, s.summary AS summary,
                                   s.created AS created, t.uid AS team, count(p) AS knowers ORDER BY s.uid""")
-    retired = db.ro(g, """MATCH (s:Retired) OPTIONAL MATCH (t:Team)-[:OWNS]->(s)
-                          RETURN s.uid AS id, s.name AS label, s.tier AS tier, s.retired AS retired, t.uid AS team""")
+    retired = db.ro(g, "MATCH (s:Retired) RETURN s.uid AS id, s.name AS label, s.tier AS tier, s.retired AS retired")
+    # a retired service has lost its OWNS fact; its last owner (from the full history) keeps it on its team's arm
+    last_owner = {r["id"]: r["team"] for r in db.ro(dbm.org(g.split(":")[1]), """MATCH (t:Team)-[r:OWNS]->(s:Service)
+                                                                            WHERE s.uid IN $u
+                                                                            RETURN s.uid AS id, t.uid AS team
+                                                                            ORDER BY r.valid_from""",
+                                                     {"u": [r["id"] for r in retired]})} if retired else {}
+    for r in retired:
+        r["team"] = last_owner.get(r["id"])
     people = db.ro(g, """MATCH (p:Person) OPTIONAL MATCH (p)-[:MEMBER_OF]->(t:Team)
                          RETURN p.uid AS id, p.name AS label, p.role AS role, p.joined AS joined, t.uid AS team
                          ORDER BY p.uid""")
