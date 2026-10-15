@@ -25,6 +25,7 @@ from orion import universe as uv
 from orion.queries import cypher
 
 OPEN = "9999-12-31"
+MOVE_WINDOW_DAYS = 14
 # what every plan rests on, said with it
 ASSUMPTIONS = [
     "Only dependencies in the records are modeled; one nobody wrote down (like invoice-render's, before INC-311) is invisible here.",
@@ -80,6 +81,12 @@ def assess(db: dbm.DB, t: str, ops: list[dict], snap: dict | None = None, info: 
 
 # ---------------------------------------------------------------- what a dependent could move to
 
+def _day(v: str):
+    from datetime import date
+
+    return date.fromisoformat(str(v)[:10])
+
+
 def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid: set[str], asof: str | None = None) -> dict:
     """What `dependent` could rely on instead of `retired`. Being related isn't being interchangeable, so a candidate
     is only offered with evidence that it can take over: a decision that names it the successor ((x)-[:REPLACES]->
@@ -99,12 +106,15 @@ def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid
     for r in db.ro(g, """MATCH (d:Decision)-[:AFFECTS]->(:Service {uid: $r}) MATCH (d)-[:AFFECTS]->(x:Service)
                          WHERE x.uid <> $r RETURN DISTINCT x.uid AS uid, d.key AS key""", {"r": retired}):
         entry(r["uid"])["decisions"].append(r["key"])
+    # a move is a dependency on x that started within a fortnight of the one on `retired` ending, not any later one
     for r in db.ro(org, f"""MATCH (s:Service)-[o:DEPENDS_ON]->(:Service {{uid: $r}})
                            WHERE o.valid_to <> '{OPEN}' AND o.valid_to <= $asof AND s.uid <> $dep
                            MATCH (s)-[n:DEPENDS_ON]->(x:Service) WHERE n.valid_from >= o.valid_from AND n.valid_from <= $asof
                              AND x.uid <> $r
-                           RETURN DISTINCT x.uid AS uid, s.name AS mover""", {"r": retired, "asof": asof, "dep": dependent}):
-        entry(r["uid"])["movers"].append(r["mover"])
+                           RETURN DISTINCT x.uid AS uid, s.name AS mover, o.valid_to AS ended, n.valid_from AS began""",
+                   {"r": retired, "asof": asof, "dep": dependent}):
+        if abs((_day(r["began"]) - _day(r["ended"])).days) <= MOVE_WINDOW_DAYS:
+            entry(r["uid"])["movers"].append(r["mover"])
     for r in db.ro(g, """MATCH (tm:Team)-[o:OWNS]->(:Service {uid: $r}) WHERE o.declared = true
                          MATCH (tm)-[o2:OWNS]->(x:Service) WHERE x.uid <> $r AND o2.declared = true
                          RETURN DISTINCT x.uid AS uid, tm.name AS team""", {"r": retired}):

@@ -30,11 +30,11 @@ Orion is entered in **all three tracks**.
 **The safe path.** A what-if says what a change breaks. Orion also looks for an order of steps that leaves no modeled
 problem, and says what it won't do. Ask it to switch off sso-legacy and it searches parallel copies of the company: for
 every system that would stop working, it tries moving it onto a replacement it has evidence for (a successor a decision
-names, `(identity)-[:REPLACES]->(sso-legacy)` from ADR-005, or a system others already moved to) or switching it off
+names, `(identity)-[:REPLACES]->(sso-legacy)` from ADR-005, or a system others moved to within two weeks of leaving it) or switching it off
 too when no system relies on it (its customers still count). Candidates that only share a team or a decision are turned
 down, with the reason. Each try is a full `GRAPH.COPY` of the company with the plan applied, scored like a what-if; a
-beam search keeps the safest few at each step. On Corvane it explores 16 companies (about a second on a local FalkorDB,
-about ten on the free cloud instance, where copies take turns) and comes back with: move invoice-render onto identity,
+beam search keeps the safest few at each step. On Corvane it explores 4 companies, turns down six candidates, and
+comes back with: move invoice-render onto identity,
 which waits on BILL-207 and the IDN-58 endpoint it is blocked by, move reports-legacy onto identity, then switch off
 sso-legacy. Modeled risk 100 → 0 once those tickets land, which means nothing the model can see, not a guarantee; the
 plan lists what it rests on. One click sends it to the teams it touches. The Navigator has it as a tool too
