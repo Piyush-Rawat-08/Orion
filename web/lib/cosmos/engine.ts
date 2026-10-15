@@ -539,10 +539,11 @@ export class Cosmos {
         if (a && b) extra.push({ a: a.pos, b: b.pos, color: new THREE.Color("#d9d2c3"), speed: 0.12, strength: 0.5, dash: 1, lift: 0.05 });
       }
     }
-    for (let i = 0; i + 1 < this.evidence.length; i++) {
-      const a = this.nodes.get(this.evidence[i]);
-      const b = this.nodes.get(this.evidence[i + 1]);
-      if (a && b) extra.push({ a: a.pos, b: b.pos, color: new THREE.Color("#ffb547"), speed: 0.4, strength: 1.2, dash: 0, lift: 0.1 });
+    // the evidence fans out from the first entity an answer is about, rather than zig-zagging across the sky
+    const hub = this.nodes.get(this.evidence[0] ?? "");
+    for (let i = 1; hub && i < this.evidence.length; i++) {
+      const b = this.nodes.get(this.evidence[i]);
+      if (b) extra.push({ a: hub.pos, b: b.pos, color: new THREE.Color("#ffb547"), speed: 0.35, strength: 0.6, dash: 0, lift: 0.05 });
     }
     if (this.extra) {
       this.scene.remove(this.extra);

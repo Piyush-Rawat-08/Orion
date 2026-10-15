@@ -100,7 +100,7 @@ def truth(ctx: Ctx, claim: dict, replay_cache: dict | None = None) -> tuple[set 
         row = db.one(ctx.org, "MATCH (d:Decision {uid: $s}) RETURN d.status AS status", {"s": s})
         return row["status"], {"subject": s, "query": "MATCH (d:Decision {uid: $s}) RETURN d.status"}
     if t == "count":
-        m = claim.get("metric")
+        m = claim.get("metric") or ("risk" if claim.get("scenario") else None)
         if m == "risk":
             return scenario_diff(ctx, claim["scenario"], replay_cache)["risk"]["score"], {"scenario": claim["scenario"]}
         sub = dict(claim, type={"knowers": "knows", "dependents": "dependents", "members": "members"}.get(m, ""))
