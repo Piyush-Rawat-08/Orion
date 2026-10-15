@@ -11,5 +11,33 @@ services:
       - orion-falkordb:/var/lib/falkordb/data
     mem_limit: 1g
 
+  # `docker compose --profile full up` runs everything: FalkorDB, the API and the web app.
+  api:
+    build: ./backend
+    profiles: ["full"]
+    depends_on: [falkordb]
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      ORION_LLM: ${ORION_LLM:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ORION_SECRET: ${ORION_SECRET:-change-me-for-anything-public}
+      ORION_CORS: ${ORION_CORS:-http://localhost:3001}
+    ports:
+      - "127.0.0.1:8100:8100"
+    mem_limit: 800m
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8100}
+    profiles: ["full"]
+    depends_on: [api]
+    ports:
+      - "127.0.0.1:3001:3001"
+    mem_limit: 600m
+
 volumes:
   orion-falkordb:
