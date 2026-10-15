@@ -1,76 +1,64 @@
 """Typed claims are checked by the graph, and a sentence is held to its claim. No model calls."""
 
+import pytest
+
 from orion import claims as cl
-from orion import ops as opsm
 from orion import universe as uv
-from orion.tools import Ctx
 
 
-def claim(**kw):
-    base = {"sentence": "", "type": "knows", "subject": "", "objects": [], "exhaustive": False, "value": None,
-            "metric": None, "scenario": None, "evidence": []}
-    return base | kw
+def check(db, t, **kw):
+    return cl.check(db, t, {"text": "", "kind": "knows", "subject": "", "objects": [], "exhaustive": False} | kw)
 
 
 def test_a_true_set_claim_verifies_and_a_false_one_is_contradicted(db, tenant):
-    ctx = Ctx(db, tenant)
-    ok = cl.check(ctx, claim(sentence="Ines Okafor knows the ledger.", subject="ledger", objects=["Ines Okafor"]))
-    assert ok["status"] == "verified"
-    bad = cl.check(ctx, claim(sentence="Tomasz knows the ledger.", subject="ledger", objects=["Tomasz Nowak"]))
-    assert bad["status"] == "contradicted" and "Tomasz Nowak" in bad["why"]
+    assert check(db, tenant, text="Ines Okafor knows the ledger.", subject="ledger", objects=["Ines Okafor"])["verdict"] == "verified"
+    bad = check(db, tenant, text="Tomasz knows the ledger.", subject="ledger", objects=["Tomasz Nowak"])
+    assert bad["verdict"] == "contradicted" and "Tomasz Nowak" in bad["reason"]
 
 
 def test_only_makes_a_set_claim_exhaustive_whatever_the_model_typed(db, tenant):
-    ctx = Ctx(db, tenant)
-    # three people know identity; "only Yusuf" is false even though Yusuf does know it
-    r = cl.check(ctx, claim(sentence="Only Yusuf Demir knows identity.", subject="identity", objects=["Yusuf Demir"],
-                            exhaustive=False))
-    assert r["status"] == "contradicted" and r["exhaustive"]
-    assert cl.check(ctx, claim(sentence="Yusuf Demir knows identity.", subject="identity",
-                               objects=["Yusuf Demir"]))["status"] == "verified"
+    # three people know identity: "only Yusuf" leaves two out
+    r = check(db, tenant, text="Only Yusuf Demir knows identity.", subject="identity", objects=["Yusuf Demir"])
+    assert r["verdict"] == "partial" and "Kofi Mensah" in r["reason"]
+    assert check(db, tenant, text="Yusuf Demir knows identity.", subject="identity",
+                 objects=["Yusuf Demir"])["verdict"] == "verified"
 
 
 def test_a_sentence_that_names_more_than_its_claim_is_only_partly_checked(db, tenant):
-    ctx = Ctx(db, tenant)
-    r = cl.check(ctx, claim(sentence="Ines Okafor knows the ledger, and Helio Robotics depends on it.", subject="ledger",
-                            objects=["Ines Okafor"]))
-    assert r["status"] == "partial" and "Helio Robotics" in r["why"]
+    r = check(db, tenant, text="Ines Okafor knows the ledger, and Helio Robotics relies on it.", subject="ledger",
+              objects=["Ines Okafor"])
+    assert r["verdict"] == "partial" and "Helio Robotics" in r["reason"]
 
 
-def test_names_that_match_nothing_are_unconfirmed_never_contradicted(db, tenant):
-    ctx = Ctx(db, tenant)
-    r = cl.check(ctx, claim(sentence="Zed knows the ledger.", subject="ledger", objects=["Zed Zebedee"]))
-    assert r["status"] == "unconfirmed"
-    r = cl.check(ctx, claim(sentence="Someone knows the quantum mainframe.", subject="quantum mainframe", objects=["Ines"]))
-    assert r["status"] == "unconfirmed"
+def test_names_that_match_nothing_are_unsupported_never_contradicted(db, tenant):
+    with pytest.raises(cl.CheckError) as e:
+        check(db, tenant, text="Zed knows the ledger.", subject="ledger", objects=["Zed Zebedee"])
+    assert e.value.verdict == "unsupported"
 
 
-def test_a_set_claim_that_names_nothing_is_refused(db, tenant):
-    ctx = Ctx(db, tenant)
-    assert cl.check(ctx, claim(sentence="People know the ledger.", subject="ledger"))["status"] == "unconfirmed"
-    # ...unless it says there is nobody, and there is nobody
-    r = cl.check(ctx, claim(sentence="Nobody knows reports-legacy.", subject="reports-legacy", exhaustive=True))
-    assert r["status"] == "verified"
+def test_a_set_claim_that_names_nobody_is_refused_unless_it_says_nobody(db, tenant):
+    with pytest.raises(cl.CheckError):
+        check(db, tenant, text="People know the ledger.", subject="ledger")
+    assert check(db, tenant, text="Nobody knows reports-legacy.", subject="reports-legacy",
+                 exhaustive=True)["verdict"] == "verified"
 
 
-def test_scenario_claims_are_checked_against_the_universe(db, tenant):
-    ctx = Ctx(db, tenant)
-    rec = uv.fork(db, tenant, [opsm.parse("retire_service:service=sso-legacy")], by="person:priya-raman")
+def test_what_if_claims_are_checked_against_the_universe(db, tenant):
+    rec = uv.fork(db, tenant, [{"op": "deprecate_service", "service": "sso-legacy"}], created_by="person:priya-raman")
     u = rec["uid"]
-    assert cl.check(ctx, claim(sentence="Retiring sso-legacy breaks invoice-render and reports-legacy.", type="breaks",
-                               objects=["invoice-render", "reports-legacy"], exhaustive=True, scenario=u))["status"] == "verified"
-    assert cl.check(ctx, claim(sentence="Billing, Console, Data and Platform must approve.", type="approvers",
-                               objects=["Billing", "Console", "Data", "Platform"], exhaustive=True,
-                               scenario=u))["status"] == "verified"
-    assert cl.check(ctx, claim(sentence=f"It scores {rec['risk']}.", type="count", value=rec["risk"],
-                               scenario=u))["status"] == "verified"
-    assert cl.check(ctx, claim(sentence="It scores 3.", type="count", metric="risk", value=3,
-                               scenario=u))["status"] == "contradicted"
+    assert check(db, tenant, kind="breaks", subject=u, text="Switching off sso-legacy breaks invoice-render.",
+                 objects=["invoice-render"])["verdict"] == "verified"
+    assert check(db, tenant, kind="breaks", subject=u, text="Helio Robotics and Pinecrest Bank would notice.",
+                 objects=["Helio Robotics", "Pinecrest Bank"])["verdict"] == "verified"
+    assert check(db, tenant, kind="metric", subject=u, measure="risk", value=str(rec["risk"]),
+                 text=f"It scores {rec['risk']}.")["verdict"] == "verified"
+    assert check(db, tenant, kind="metric", subject=u, measure="risk", value="3", text="It scores 3.")["verdict"] == "contradicted"
+    names = [b["service"] for b in rec["diff"]["broken"]]
+    r = check(db, tenant, kind="count", subject=u, measure="broken", value=str(len(names)),
+              text=f"{len(names)} systems would break: {', '.join(names)}.")
+    assert r["verdict"] == "verified"  # the names it lists are the ones the check returned
 
 
 def test_decision_status(db, tenant):
-    ctx = Ctx(db, tenant)
-    assert cl.check(ctx, claim(sentence="ADR-011 was reversed.", type="decision", subject="ADR-011",
-                               value="reversed"))["status"] == "verified"
-    assert cl.check(ctx, claim(sentence="ADR-011 is in force.", type="decision", subject="ADR-011",
-                               value="accepted"))["status"] == "contradicted"
+    assert check(db, tenant, kind="decided", subject="ADR-011", value="reversed", text="ADR-011 was reversed.")["verdict"] == "verified"
+    assert check(db, tenant, kind="decided", subject="ADR-011", value="accepted", text="ADR-011 is in force.")["verdict"] == "contradicted"

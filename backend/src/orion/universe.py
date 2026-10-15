@@ -1,489 +1,674 @@
 """Universes: fork the company, change it, see what happens, and make it real only when the right people agree.
 
-    fork     GRAPH.COPY epoch:<t>:now -> universe:<t>:<id>, then apply the ops physically
-    diff     the same Cypher and algorithms in both graphs: what breaks and how badly, who is exposed, what nobody
-             would know any more, what loses every path to a team, which collaboration groups split, which
-             bottlenecks move; plus a risk score that is a sum of named terms
-    approve  every team the diff says is affected has to approve; a stale universe is rebased first
+    fork     GRAPH.COPY of epoch:<t>:now (or of the company on a past date) -> universe:<t>:<id>; ops applied in place
+    diff     the same traversal, queries and algorithms in the universe and its base: what breaks and how badly,
+             which customers would notice, what nobody would know any more, what loses every path to a team, which
+             groups of people fall apart, whose central role moves; a risk score that is a sum of named terms; and
+             the teams that have to agree, derived from the diff
+    approve  one approval per required team; a stale base is rebased first; a merge that would leave running
+             services relying on something switched off is blocked unless forced
     merge    the ops replay into the org graph as closed and opened facts, with a Decision as their source
-    discard  drop the universe graph, keep the record
+    discard  reject an open universe; the record and its ops stay
 
-The registry, approvals and findings' index live in the deck graph, which every agent and every user shares.
+The registry (:Universe), approvals and risk terms live in the deck graph.
 """
 
 from __future__ import annotations
 
 import json
+import secrets
 import time
-from collections import defaultdict
+from datetime import date as _date
+from datetime import timedelta
 
-from orion import algos, impact
 from orion import db as dbm
 from orion import epoch as ep
+from orion import impact
 from orion import ops as opsm
+from orion.queries import cypher
 
-# ---------------------------------------------------------------- risk weights
-# Points per term. Tiers come from the catalog: tier 1 is customer-facing and paged, tier 3 internal.
-BREAK_POINTS = {1: 25, 2: 12, 3: 5}
-EFFECT_SCALE = {"break": 1.0, "degrade": 0.5, "stale": 0.25}
-CUSTOMER_POINTS = {"enterprise": 6, "growth": 3, "starter": 1}
-ORPHAN_POINTS = {1: 22, 2: 12, 3: 6}
-STRANDED_POINTS = 12
-SPLIT_POINTS = 10
-BOTTLENECK_POINTS = 6
-LEVELS = [(0, "clear"), (1, "watch"), (35, "danger")]
-
-
-def level(score: int) -> str:
-    out = "clear"
-    for lo, name in LEVELS:
-        if score >= lo:
-            out = name
-    return out
+TIER_POINTS = {1: 30, 2: 15, 3: 6}
+EFFECT_WEIGHT = {"break": 1.0, "degrade": 0.5, "stale": 0.33}
+TIER_WORD = {1: "business-critical", 2: "important", 3: "supporting"}
+EFFECT_WORD = {"break": "stop working", "degrade": "slow down or partly fail", "stale": "run on out-of-date data"}
+FAR_HOP_FACTOR = 0.5
+CUSTOMER_POINTS = {"enterprise": 8, "growth": 4, "starter": 2}
+ORPHAN_POINTS = {1: 20, 2: 12, 3: 12}
+STRANDED_POINTS = 15
+SPLIT_POINTS = 15
+BOTTLENECK_POINTS = 8
+CUSTOMER_WINDOW_DAYS = 365
+MEDIUM_FROM, HIGH_FROM = 1, 40
+DETAIL = 200
+DECIDABLE = ("open", "merge_failed")
 
 
-# ---------------------------------------------------------------- the deck graph
+class Busy(ValueError):
+    pass
 
-def _deck(db: dbm.DB, t: str) -> str:
+
+class MergeBlocked(ValueError):
+    def __init__(self, message: str, detail: dict):
+        super().__init__(message)
+        self.detail = detail
+
+
+def deck(db: dbm.DB, t: str) -> str:
     g = dbm.deck(t)
     if not db.exists(g):
         db.q(g, "CREATE INDEX FOR (u:Universe) ON (u.uid)")
-        db.q(g, "CREATE INDEX FOR (a:Approval) ON (a.universe)")
     return g
 
 
-def who(db: dbm.DB, t: str, user: str) -> dict:
-    """A person and the team they are on now."""
-    row = db.one(ep.now(db, t), """MATCH (p:Person {uid: $u}) OPTIONAL MATCH (p)-[:MEMBER_OF]->(t:Team)
-                                    RETURN p.uid AS uid, p.name AS name, p.role AS role, t.uid AS team, t.name AS team_name""",
-                 {"u": user})
-    if not row:
-        raise PermissionError(f"{user} is not a current member of the company")
-    return row
+_deck = deck
 
 
 # ---------------------------------------------------------------- fork
 
-def fork(db: dbm.DB, t: str, ops: list[dict], *, by: str, kind: str = "whatif", title: str | None = None,
-         uid: str | None = None, question: str | None = None, on: str | None = None, mode: str = "true") -> dict:
-    """Copy the company as it is now (or as it was on `on`, as it really was or as it was known) and apply the ops,
-    then diff. `uid` makes a retried fork rebuild the same universe. A fork of the past is a backtest: it can't
-    be merged."""
-    t0 = time.perf_counter()
-    base = ep.ensure(db, t, on, mode) if on else ep.now(db, t)
-    if on:
-        kind = "backtest"
-    res = opsm.resolver(db, base)
-    ops = [opsm.resolve(db, base, op, res) for op in ops]
-    if not ops:
-        raise opsm.OpError("a universe needs at least one change")
-    opsm.check_sequence(ops)
-    uid = uid or f"u{db.incr(f'orion:{t}:universe_seq')}"
+def next_uid(db: dbm.DB, t: str) -> str:
+    return f"u{db.incr(f'orion:{t}:universe_seq')}"
+
+
+def fork(db: dbm.DB, t: str, ops: list[dict], kind: str = "whatif", title: str | None = None,
+         created_by: str = "cli", uid: str | None = None, task: str | None = None, rebased_from: str | None = None,
+         asof: str | None = None, known: bool = True, diff_now: bool = True) -> dict:
+    """Copy the company (now, or as it was on `asof`) and apply the ops. `uid` makes a retried fork idempotent."""
+    if uid:
+        done = db.one(deck(db, t), "MATCH (u:Universe {uid: $u}) RETURN properties(u) AS u", {"u": uid})
+        if done and done["u"].get("diff_json") and db.exists(done["u"]["graph"]):
+            rec = done["u"]
+            return {**{k: v for k, v in rec.items() if k != "diff_json"}, "applied": [], "fork_ms": 0.0,
+                    "idempotent": True, "diff": json.loads(rec["diff_json"])}
+    base = ep.checkout(db, t, asof, "known" if (asof and known) else "true")
+    resolved = opsm.resolve_ops(db, base["graph"], ops)
+    names = opsm.names_of(db, base["graph"], resolved)
+    uid = uid or next_uid(db, t)
     graph = dbm.universe(t, uid)
-    db.copy(base, graph)
-    copied = time.perf_counter()
+    t0 = time.perf_counter()
+    copy_ms = db.copy(base["graph"], graph)
+    t1 = time.perf_counter()
     try:
-        opsm.apply_physical(db, graph, ops, dbm.clock(db, t))
+        applied = opsm.apply_physical(db, graph, resolved, uid)
     except Exception:
         db.delete(graph)
         raise
-    d = diff(db, t, base, graph, ops)
-    title = title or "; ".join(opsm.title(db, base, o) for o in ops)
-    if any(not opsm.OPS[o["op"]].mergeable for o in ops):
+    apply_ms = (time.perf_counter() - t1) * 1000
+    if not title:
+        title = "; ".join(opsm.describe(o, names) for o in resolved)
+    if any(not opsm.OPS[o["op"]].mergeable for o in resolved) and kind == "whatif":
         kind = "outage"
-    rec = {
-        "uid": uid, "graph": graph, "kind": kind, "title": title, "ops": ops, "by": by, "question": question,
-        "created_at": dbm.clock(db, t), "base_version": dbm.version(db, t), "status": "open",
-        "on": on, "mode": mode if on else None,
-        "risk": d["risk"]["score"], "level": d["risk"]["level"],
-        "ms": {"copy": round((copied - t0) * 1000, 1), "total": round((time.perf_counter() - t0) * 1000, 1)},
+    record = {
+        "uid": uid, "graph": graph, "base": base["graph"], "kind": "backtest" if asof else kind, "title": title,
+        "ops_json": json.dumps(resolved), "ops_named_json": json.dumps(opsm.named(resolved, names)),
+        "created_by": created_by, "created_at": asof or dbm.clock(db, t), "status": "open",
+        "base_version": base["version"], "copy_ms": round(copy_ms, 1), "apply_ms": round(apply_ms, 1),
+        "seq": int(uid[1:]) if uid[1:].isdigit() else 0, "asof": asof, "known": bool(asof and known),
+        "task": task, "rebased_from": rebased_from,
     }
-    _save(db, t, rec, d)
-    _finding(db, t, rec, d)
-    return rec | {"diff": d}
+    db.q(deck(db, t), "MERGE (u:Universe {uid: $u}) SET u += $r",
+         {"u": uid, "r": {k: v for k, v in record.items() if v is not None}})
+    out = {**record, "applied": applied, "fork_ms": round((time.perf_counter() - t0) * 1000, 1)}
+    if diff_now:
+        out["diff"] = diff(db, t, uid)
+        out["risk"] = out["diff"]["risk"]["score"]
+        out["risk_level"] = out["diff"]["risk"]["level"]
+    return out
 
 
-def replay(db: dbm.DB, t: str, ops: list[dict]) -> dict:
-    """The diff the same ops would give on today's company, on a throwaway copy: no record, no finding."""
-    import secrets
-
-    base = ep.now(db, t)
-    graph = dbm.universe(t, "replay-" + secrets.token_hex(4))
-    db.copy(base, graph)
-    try:
-        opsm.apply_physical(db, graph, ops, dbm.clock(db, t))
-        return diff(db, t, base, graph, ops)
-    finally:
-        db.delete(graph)
+def get_universe(db: dbm.DB, t: str, uid: str) -> dict:
+    row = db.one(deck(db, t), "MATCH (u:Universe {uid: $u}) RETURN properties(u) AS u", {"u": uid})
+    if not row:
+        raise KeyError(f"universe {uid} not found")
+    return row["u"]
 
 
-def _save(db: dbm.DB, t: str, rec: dict, d: dict) -> None:
-    g = _deck(db, t)
-    db.q(g, """MERGE (u:Universe {uid: $uid})
-               SET u.graph = $graph, u.kind = $kind, u.title = $title, u.ops = $ops, u.by = $by, u.question = $question,
-                   u.created_at = $created_at, u.base_version = $base_version, u.status = $status, u.risk = $risk,
-                   u.level = $level, u.diff = $diff, u.ms = $ms, u.required = $required, u.on = $on, u.mode = $mode""",
-         rec | {"ops": json.dumps(rec["ops"]), "diff": json.dumps(d), "ms": json.dumps(rec["ms"]),
-                "required": [r["team"] for r in d["approvals"]]})
+def list_universes(db: dbm.DB, t: str) -> list[dict]:
+    return [r["u"] for r in db.ro(deck(db, t), "MATCH (u:Universe) RETURN properties(u) AS u ORDER BY u.seq DESC")]
 
 
-def _finding(db: dbm.DB, t: str, rec: dict, d: dict) -> None:
-    """Leave what was learned in the org graph, attached to the entities it is about, so the next question about
-    any of them (from any person or agent) starts from it."""
-    about = {o[k] for o in rec["ops"] for k in o if k != "op" and isinstance(o[k], str) and ":" in o[k]}
-    about |= {b["uid"] for b in d["breaks"]}
-    summary = d["summary"]
-    db.q(dbm.org(t), """CREATE (f:Finding {uid: $uid, universe: $u, title: $title, risk: $risk, level: $level,
-                                         at: $at, summary: $summary, ops: $ops, by: $by})
-                        WITH f UNWIND $about AS a MATCH (n {uid: a}) CREATE (f)-[:ABOUT]->(n)""",
-         {"uid": "finding:" + rec["uid"], "u": rec["uid"], "title": rec["title"], "risk": rec["risk"],
-          "level": rec["level"], "at": rec["created_at"], "summary": summary, "ops": json.dumps(rec["ops"]),
-          "by": rec["by"], "about": sorted(about)})
+HIDDEN_FIELDS = ("diff_json", "ops_json", "required_json", "ops_named_json")
+
+
+def summary(u: dict) -> dict:
+    """A universe as the list shows it: the record, with its changes by name."""
+    return {**{k: v for k, v in u.items() if k not in HIDDEN_FIELDS}, "ops": json.loads(u.get("ops_named_json") or "[]")}
+
+
+def detail(db: dbm.DB, t: str, uid: str) -> dict:
+    """One universe: the record, its changes by name, the diff and who has approved."""
+    u = get_universe(db, t, uid)
+    return {**summary(u), "diff": json.loads(u["diff_json"]) if u.get("diff_json") else None,
+            **approval_state(db, t, uid, u), "browser": f"http://localhost:3000/?graph={u['graph']}"}
 
 
 # ---------------------------------------------------------------- diff
 
-def _dangling(db: dbm.DB, g: str) -> list[dict]:
-    """Running services that still depend on something switched off."""
-    return db.ro(g, """MATCH (d:Service)-[r:DEPENDS_ON]->(s:Retired)
-                       RETURN d.uid AS dependent, d.name AS dependent_name, s.uid AS on, s.name AS on_name,
-                              r.kind AS kind, r.uid AS fact ORDER BY dependent""")
+def evidence(eid: str, graph: str, query: str, params: dict, node_uids: list, fact_uids: list, asof: str | None,
+             summary: str = "", text: str | None = None) -> dict:
+    """A receipt: which graph, which named query and its Cypher, the parameters, and the uids it touched."""
+    return {"eid": eid, "graph": graph, "query": query, "cypher": text or cypher(query), "params": params,
+            "node_uids": sorted({u for u in node_uids if u}), "fact_uids": sorted({u for u in fact_uids if u}),
+            "asof": asof, "summary": summary}
 
 
-def _services(db: dbm.DB, g: str) -> dict[str, dict]:
-    return {r["uid"]: r for r in db.ro(g, """MATCH (s:Service) OPTIONAL MATCH (t:Team)-[:OWNS]->(s)
-                                             RETURN s.uid AS uid, s.name AS name, s.tier AS tier, t.uid AS owner,
-                                                    t.name AS owner_name""")}
+def broken_in(db: dbm.DB, graph: str) -> dict[str, impact.Reach]:
+    """Every running service that still depends, at any depth, on a switched-off one."""
+    retired = [r["uid"] for r in db.ro(graph, "MATCH (:Service)-[:DEPENDS_ON]->(r:Retired) RETURN DISTINCT r.uid AS uid")]
+    return impact.walk(db, graph, retired) if retired else {}
 
 
-def _orphans(db: dbm.DB, g: str) -> set[str]:
-    return {r["uid"] for r in db.ro(g, "MATCH (s:Service) WHERE NOT ()-[:KNOWS]->(s) RETURN s.uid AS uid")}
+def _since(asof: str, days: int) -> str:
+    return (_date.fromisoformat(asof[:10]) - timedelta(days=days)).isoformat()
 
 
-def _edges(db: dbm.DB, g: str) -> set[tuple]:
-    rows = db.ro(g, """MATCH (a)-[r:DEPENDS_ON|OWNS|MEMBER_OF]->(b) WHERE NOT b:Retired
-                       RETURN type(r) AS rel, a.uid AS a, b.uid AS b, r.kind AS kind""")
-    return {(r["rel"], r["a"], r["b"], r["kind"]) for r in rows}
+def customers_affected(db: dbm.DB, graph: str, services: list[str], asof: str) -> list[dict]:
+    if not services:
+        return []
+    rows = db.ro(graph, cypher("customers_affected"), {"services": services, "since": _since(asof, CUSTOMER_WINDOW_DAYS)})
+    by: dict[str, dict] = {}
+    for r in sorted(rows, key=lambda r: (r["customer"], r["service"])):
+        c = by.setdefault(r["uid"], {"uid": r["uid"], "customer": r["customer"], "tier": r["tier"], "services": [],
+                                     "service_uids": [], "tickets": [], "uses": []})
+        if r["service_uid"] not in c["service_uids"]:
+            c["services"].append(r["service"])
+            c["service_uids"].append(r["service_uid"])
+        c["tickets"] += [k for k in r["tickets"] if k and k not in c["tickets"]]
+        if r["uses"] and r["service"] not in c["uses"]:
+            c["uses"].append(r["service"])
+    return sorted(by.values(), key=lambda c: (-CUSTOMER_POINTS.get(c["tier"], 2), c["customer"]))
 
 
-def diff(db: dbm.DB, t: str, base: str, uni: str, ops: list[dict]) -> dict:
-    t0 = time.perf_counter()
-    sb, su = _services(db, base), _services(db, uni)
-    retired = sorted(set(sb) - set(su))
-    dangling = _dangling(db, uni)
-    roots = sorted({r["on"] for r in dangling})
-    before = impact.walk(db, base, sorted({r["on"] for r in _dangling(db, base)}))
-    after = impact.walk(db, uni, roots)
-    breaks = []
-    for uid, b in after.items():
-        prev = before.get(uid)
-        if prev and impact.SEVERITY[prev["effect"]] >= impact.SEVERITY[b["effect"]]:
-            continue
-        info = sb.get(uid, {})
-        breaks.append(b | {"owner": info.get("owner"), "owner_name": info.get("owner_name")})
-    breaks.sort(key=lambda b: (-impact.SEVERITY[b["effect"]], b["depth"], b["tier"], b["name"]))
-    names = impact.names(db, base, {u for b in breaks for u in b["path"]} | set(retired))
-    for b in breaks:
-        b["path_names"] = [names.get(u, u) for u in b["path"]]
+def _owner_teams(db: dbm.DB, graph: str, services: list[str]) -> list[dict]:
+    if not services:
+        return []
+    return [r for label in ("Service", "Retired") for r in db.ro(graph, f"""MATCH (x:{label}) WHERE x.uid IN $s
+                                 MATCH (t:Team)-[o:OWNS]->(x) WHERE o.declared = true
+                                 RETURN t.uid AS team_uid, t.name AS team, x.name AS service""", {"s": services})]
 
-    # who is exposed: customers using something that breaks (or degrades within two hops), and customers who raised
-    # a ticket in the past year about a service that would break
-    felt = {b["uid"]: b["effect"] for b in breaks if b["effect"] == "break" or b["depth"] <= 2}
-    felt |= {r: "break" for r in retired}
-    broken = [b["uid"] for b in breaks if b["effect"] == "break"]
-    hit = felt | {u: "break" for u in broken}
-    since = _year_before(dbm.clock(db, t) if base == dbm.epoch(t) else _base_date(db, base))
-    cust_rows = db.ro(base, """MATCH (c:Customer)-[:USES]->(s:Service) WHERE s.uid IN $u
-                               RETURN c.uid AS uid, c.name AS name, c.tier AS tier, s.uid AS via, null AS ticket
-                               UNION
-                               MATCH (c:Customer)<-[:RAISED_BY]-(k:Ticket)-[:ABOUT]->(s:Service)
-                               WHERE s.uid IN $b AND k.at >= $since
-                               RETURN c.uid AS uid, c.name AS name, c.tier AS tier, s.uid AS via, k.key AS ticket""",
-                      {"u": list(felt), "b": broken, "since": since})
-    customers: dict[str, dict] = {}
-    for r in cust_rows:
-        c = customers.setdefault(r["uid"], {"uid": r["uid"], "name": r["name"], "tier": r["tier"], "via": set(),
-                                            "tickets": set(), "effect": "stale"})
-        c["via"].add(r["via"])
-        if r["ticket"]:
-            c["tickets"].add(r["ticket"])
-        if impact.SEVERITY[hit[r["via"]]] > impact.SEVERITY[c["effect"]]:
-            c["effect"] = hit[r["via"]]
-    customers_out = sorted(({**c, "via": sorted(names.get(v, v) for v in c["via"]), "tickets": sorted(c["tickets"])}
-                            for c in customers.values()),
-                           key=lambda c: (-impact.SEVERITY[c["effect"]], ["enterprise", "growth", "starter"].index(c["tier"]), c["name"]))
 
-    orphans = sorted(_orphans(db, uni) - _orphans(db, base) - set(retired))
-    orphan_rows = [{"uid": u, "name": su[u]["name"], "tier": su[u]["tier"], "owner_name": su[u]["owner_name"],
-                    "knew": [r["name"] for r in db.ro(base, "MATCH (p:Person)-[:KNOWS]->(:Service {uid: $s}) RETURN p.name AS name",
-                                                      {"s": u})]}
-                   for u in orphans if u in su]
-
-    stranded_before = {tuple(s["uid"] for s in c["services"]) for c in algos.stranded(db, base)}
-    stranded = [c for c in algos.stranded(db, uni) if tuple(s["uid"] for s in c["services"]) not in stranded_before]
-
-    gone = {r["uid"] for r in db.ro(uni, "MATCH (p:Former) RETURN p.uid AS uid")}
-    groups_after = algos.collab_groups(db, uni)
-    where = {p: i for i, grp in enumerate(groups_after) for p in grp}
-    splits = []
-    for grp in algos.collab_groups(db, base):
-        left = [p for p in grp if p not in gone]
-        parts = {where.get(p, ("alone", p)) for p in left}
-        if len(left) > 1 and len(parts) > 1:
-            splits.append({"before": len(grp), "parts": len(parts), "people": left})
-
-    top_before = algos.bottlenecks(db, base)
-    top_after = algos.bottlenecks(db, uni)
-    shifted = {p["uid"] for p in top_before} != {p["uid"] for p in top_after}
-
-    # what changed in the graph itself
-    eb, eu = _edges(db, base), _edges(db, uni)
-    changed = {"removed": sorted(eb - eu), "added": sorted(eu - eb)}
-
-    # who has to approve: the teams that own what changes, breaks or loses its last expert
-    need: dict[str, set[str]] = defaultdict(set)
-
-    def owner_of(svc: str, why: str):
-        o = sb.get(svc, {}).get("owner")
-        if o:
-            need[o].add(why)
-
-    for r in retired:
-        owner_of(r, f"owns {sb[r]['name']}")
-    for b in breaks:
-        if b["effect"] in ("break", "degrade"):
-            owner_of(b["uid"], f"{b['name']} would {'break' if b['effect'] == 'break' else 'degrade'}")
-    for o in orphan_rows:
-        owner_of(o["uid"], f"nobody would know {o['name']}")
+def required_approvers(db: dbm.DB, base: str, ops: list[dict], broken_uids: list[str]) -> list[dict]:
+    """Who has to agree: the declared owners of every service the change breaks, and of every service, person or
+    team it directly changes. One approval from a member of each team unblocks the merge."""
+    touched, teams_direct, people, decisions = [], set(), [], []
     for op in ops:
-        if op["op"] in ("move_ownership",):
-            owner_of(op["service"], "gives up " + sb[op["service"]]["name"])
-            need[op["team"]].add("takes over " + sb[op["service"]]["name"])
-        if op["op"] in ("add_dependency", "remove_dependency"):
-            owner_of(op["service"], f"owns {sb[op['service']]['name']}")
-        if op["op"] == "merge_teams":
-            need[op["team"]].add("is merged away")
-            need[op["into"]].add("absorbs a team")
-        if op["op"] == "remove_person":
-            row = db.one(base, "MATCH (:Person {uid: $p})-[:MEMBER_OF]->(t:Team) RETURN t.uid AS t", {"p": op["person"]})
-            if row:
-                need[row["t"]].add("loses a member")
-    team_names = {r["uid"]: r["name"] for r in db.ro(base, "MATCH (t:Team) RETURN t.uid AS uid, t.name AS name")}
-    approvals = [{"team": k, "team_name": team_names.get(k, k), "why": sorted(v)} for k, v in sorted(need.items())]
+        o = op["op"]
+        if o in ("deprecate_service", "reassign_owner", "create_ticket", "outage"):
+            touched.append(op["service"])
+        if o in ("add_dependency", "remove_dependency", "declare_dependency"):
+            touched.append(op["source"])
+        if o in ("remove_person", "move_person"):
+            people.append(op["person"])
+        if o == "reverse_decision":
+            decisions.append(op["decision"])
+        if o == "merge_teams":
+            teams_direct |= {op["team"], op["into"]}
+        if o in ("reassign_owner", "move_person"):
+            teams_direct.add(op["team"])
+    need: dict[str, dict] = {}
 
-    risk = score(breaks, customers_out, orphan_rows, stranded, splits, shifted, top_before, top_after)
-    summary = _summary(retired, sb, breaks, customers_out, orphan_rows, risk)
-    return {"retired": [{"uid": r, "name": sb[r]["name"], "tier": sb[r]["tier"]} for r in retired],
-            "breaks": breaks, "customers": customers_out, "orphans": orphan_rows, "stranded": stranded,
-            "splits": splits, "bottlenecks": {"before": top_before, "after": top_after, "shifted": shifted},
-            "dangling": dangling, "changed": changed, "approvals": approvals, "risk": risk, "summary": summary,
-            "ms": round((time.perf_counter() - t0) * 1000, 1)}
+    def add(team_uid: str, team: str, why: str) -> None:
+        r = need.setdefault(team_uid, {"team_uid": team_uid, "team": team, "because": []})
+        if why not in r["because"]:
+            r["because"].append(why)
 
-
-def score(breaks, customers, orphans, stranded, splits, shifted, top_before, top_after) -> dict:
-    terms = []
-    for b in breaks:
-        pts = BREAK_POINTS[b["tier"]] * EFFECT_SCALE[b["effect"]] / b["depth"]
-        terms.append({"term": "breaks", "entity": b["uid"], "points": round(pts, 1),
-                      "label": f"{b['name']} {_verb(b['effect'])} (tier {b['tier']}, {b['depth']} hop{'s' if b['depth'] > 1 else ''})"})
-    for c in customers:
-        pts = CUSTOMER_POINTS[c["tier"]] * EFFECT_SCALE[c["effect"]]
-        terms.append({"term": "customer", "entity": c["uid"], "points": round(pts, 1),
-                      "label": f"{c['name']} ({c['tier']}) exposed through {', '.join(c['via'])}"})
-    for o in orphans:
-        terms.append({"term": "orphan", "entity": o["uid"], "points": ORPHAN_POINTS[o["tier"]],
-                      "label": f"nobody would know {o['name']}"})
-    for s in stranded:
-        terms.append({"term": "stranded", "entity": s["services"][0]["uid"], "points": STRANDED_POINTS,
-                      "label": "lose every path to a team: " + ", ".join(x["name"] for x in s["services"])})
-    for s in splits:
-        terms.append({"term": "split", "entity": None, "points": SPLIT_POINTS,
-                      "label": f"a group of {s['before']} who work together falls into {s['parts']}"})
-    if shifted:
-        terms.append({"term": "bottleneck", "entity": None, "points": BOTTLENECK_POINTS,
-                      "label": "the people everything flows through change"})
-    total = min(100, round(sum(t["points"] for t in terms)))
-    return {"score": total, "level": level(total), "terms": sorted(terms, key=lambda t: -t["points"])}
+    for r in _owner_teams(db, base, broken_uids):
+        add(r["team_uid"], r["team"], f"owns {r['service']}, which would break")
+    for r in _owner_teams(db, base, touched):
+        add(r["team_uid"], r["team"], f"owns {r['service']}, which the change touches")
+    if people:
+        for r in db.ro(base, """MATCH (p:Person)-[:MEMBER_OF]->(t:Team) WHERE p.uid IN $p
+                                RETURN t.uid AS tu, t.name AS tn, p.name AS pn""", {"p": people}):
+            add(r["tu"], r["tn"], f"{r['pn']} is on the team")
+    if decisions:
+        for r in db.ro(base, """MATCH (d:Decision)-[:MADE_BY]->(t:Team) WHERE d.uid IN $d
+                                RETURN DISTINCT t.uid AS tu, t.name AS tn, d.key AS k""", {"d": decisions}):
+            add(r["tu"], r["tn"], f"made {r['k']}")
+        affected = [r["uid"] for r in db.ro(base, "MATCH (d:Decision)-[:AFFECTS]->(x) WHERE d.uid IN $d RETURN DISTINCT x.uid AS uid",
+                                            {"d": decisions})]
+        for r in _owner_teams(db, base, affected):
+            add(r["team_uid"], r["team"], f"owns {r['service']}, which the decision governs")
+    if teams_direct:
+        for r in db.ro(base, "MATCH (t) WHERE t.uid IN $t RETURN t.uid AS tu, t.name AS tn", {"t": sorted(teams_direct)}):
+            add(r["tu"], r["tn"], "the change moves work to or from the team")
+    return sorted(need.values(), key=lambda r: r["team"])
 
 
-def _verb(effect: str) -> str:
-    return {"break": "breaks", "degrade": "degrades", "stale": "goes stale"}[effect]
+def _top(rows: list[dict], n: int = 5) -> list[dict]:
+    return [{"uid": r["uid"], "name": r["name"], "score": round(r["score"], 4)} for r in rows[:n]]
 
 
-def _summary(retired, sb, breaks, customers, orphans, risk) -> str:
-    parts = []
-    if retired:
-        parts.append("without " + ", ".join(sb[r]["name"] for r in retired))
-    hard = [b["name"] for b in breaks if b["effect"] == "break"]
-    soft = [b["name"] for b in breaks if b["effect"] != "break"]
-    if hard:
-        parts.append("breaks " + ", ".join(hard))
-    if soft:
-        parts.append("degrades " + ", ".join(soft))
+def _components(db: dbm.DB, graph: str):
+    comps, of, nm = [], {}, {}
+    for r in db.ro(graph, cypher("collab_components")):
+        comps.append(r["uids"])
+        for u, n in zip(r["uids"], r["names"]):
+            of[u], nm[u] = r["cid"], n
+    return comps, of, nm
+
+
+def _names_of_label(db: dbm.DB, g: str, label: str) -> set[str]:
+    return {r["name"] for r in db.ro(g, f"MATCH (x:{label}) RETURN x.name AS name")}
+
+
+def diff(db: dbm.DB, t: str, uid: str) -> dict:
+    """Run the same queries and algorithms in the universe and its base; report what changed."""
+    u = get_universe(db, t, uid)
+    ug, bg = u["graph"], u["base"]
+    asof = u["created_at"]
+    t0 = time.perf_counter()
+    ev: list[dict] = []
+
+    # what breaks: every running service that still reaches a switched-off one, with a witness path each
+    reach = broken_in(db, ug)
+    info = {r["uid"]: r for r in db.ro(ug, """MATCH (s:Service) WHERE s.uid IN $s
+        OPTIONAL MATCH (t:Team)-[o:OWNS]->(s) WHERE o.declared = true
+        OPTIONAL MATCH (p:Person)-[:KNOWS]->(s)
+        RETURN s.uid AS uid, s.tier AS tier, collect(DISTINCT t.name) AS owners, collect(DISTINCT p.name) AS people""",
+                                           {"s": list(reach)})}
+    roots = impact.names(db, ug, {x.root for x in reach.values()})
+    broken = []
+    for n, x in enumerate(sorted(reach.values(), key=lambda r: (r.hops, r.name))):
+        eid = f"{uid}.broken.{x.name}" if n < DETAIL else f"{uid}.broken.rest"
+        if n < DETAIL:
+            path = impact.names(db, ug, x.nodes)
+            ev.append(evidence(eid, ug, "broken_detail", {"edges": x.edges}, x.nodes, x.edges, asof,
+                               f"{x.name} still relies on {roots.get(x.root, x.root)} in what-if {uid} ({x.hops} step(s)): "
+                               + " -> ".join(path.get(p, p) for p in reversed(x.nodes))))
+        i = info.get(x.uid, {})
+        broken.append({"uid": x.uid, "service": x.name, "because_of": roots.get(x.root, x.root), "hops": x.hops,
+                       "tier": i.get("tier") or x.tier or 3, "owners": i.get("owners", []),
+                       "people_who_know_it": i.get("people", []), "effect": x.effect, "path": x.nodes[::-1],
+                       "kinds": x.kinds[::-1], "fact_uids": x.edges, "via_undeclared": x.undeclared, "evidence": eid})
+
+    effect_of = {b["uid"]: b["effect"] for b in broken}
+    customers = customers_affected(db, ug, [b["uid"] for b in broken], asof)
     if customers:
-        parts.append(f"{len(customers)} customer{'s' if len(customers) != 1 else ''} exposed")
-    if orphans:
-        parts.append("nobody would know " + ", ".join(o["name"] for o in orphans))
-    if not parts:
-        parts.append("nothing breaks")
-    return f"risk {risk['score']} ({risk['level']}): " + "; ".join(parts)
+        ev.append(evidence(f"{uid}.customers", ug, "customers_affected",
+                           {"services": [b["uid"] for b in broken], "since": _since(asof, CUSTOMER_WINDOW_DAYS)},
+                           [c["uid"] for c in customers], [], asof, f"customers tied to the services that break in what-if {uid}"))
+
+    # services nobody would know
+    before = {r["uid"]: r for r in db.ro(bg, cypher("knowledge_orphans"))}
+    after = {r["uid"]: r for r in db.ro(ug, cypher("knowledge_orphans"))}
+    new_orphans = []
+    for s in sorted(set(after) - set(before)):
+        eid = f"{uid}.orphan.{after[s]['name']}"
+        ev.append(evidence(eid, ug, "knowledge_orphans", {}, [s], [], asof, f"nobody left in what-if {uid} knows {after[s]['name']}"))
+        new_orphans.append({"uid": s, "service": after[s]["name"], "tier": after[s]["tier"] or 3, "evidence": eid})
+
+    # services that lose every path to a team
+    stranded_before = {x for r in db.ro(bg, cypher("stranded_clusters")) for x in r["uids"]}
+    stranded = []
+    for r in db.ro(ug, cypher("stranded_clusters")):
+        if set(r["uids"]) - stranded_before:
+            eid = f"{uid}.stranded.{len(stranded)}"
+            ev.append(evidence(eid, ug, "stranded_clusters", {}, r["uids"], [], asof,
+                               f"systems with no team left responsible in what-if {uid}"))
+            stranded.append({"services": sorted(r["names"]), "uids": r["uids"], "evidence": eid})
+
+    # who the work flows through (betweenness) and who has influence (PageRank), in both graphs
+    b_before, b_after = db.ro(bg, cypher("betweenness")), db.ro(ug, cypher("betweenness"))
+    p_before, p_after = db.ro(bg, cypher("pagerank")), db.ro(ug, cypher("pagerank"))
+    bb = {r["uid"]: r["score"] for r in b_before}
+    pb = {r["uid"]: r["score"] for r in p_before}
+    top_before, top_after = [r["uid"] for r in b_before[:5]], [r["uid"] for r in b_after[:5]]
+    b_shift = sorted(({"uid": r["uid"], "name": r["name"], "before": round(bb.get(r["uid"], 0.0), 2),
+                       "after": round(r["score"], 2), "delta": round(r["score"] - bb.get(r["uid"], 0.0), 2)}
+                      for r in b_after if abs(r["score"] - bb.get(r["uid"], 0.0)) >= 1.0), key=lambda x: -abs(x["delta"]))
+    i_shift = sorted(({"uid": r["uid"], "name": r["name"], "before": round(pb.get(r["uid"], 0.0), 4),
+                       "after": round(r["score"], 4), "delta": round(r["score"] - pb.get(r["uid"], 0.0), 4)}
+                      for r in p_after if abs(r["score"] - pb.get(r["uid"], 0.0)) >= 0.002), key=lambda x: -abs(x["delta"]))
+
+    # groups of people that would fall apart
+    comps_before, _, _ = _components(db, bg)
+    _, of_after, names_after = _components(db, ug)
+    splits = []
+    for members in comps_before:
+        live = [m for m in members if m in of_after]
+        parts = {of_after[m] for m in live}
+        if len(parts) > 1:
+            groups = [[names_after[m] for m in live if of_after[m] == p] for p in parts]
+            eid = f"{uid}.split.{len(splits)}"
+            ev.append(evidence(eid, ug, "collab_components", {}, live, [], asof, f"the groups people work in, in what-if {uid}"))
+            splits.append({"groups": sorted(groups, key=len, reverse=True), "evidence": eid})
+
+    structural = {
+        "retired": sorted(_names_of_label(db, ug, "Retired") - _names_of_label(db, bg, "Retired")),
+        "former": sorted(_names_of_label(db, ug, "Former") - _names_of_label(db, bg, "Former")),
+        "closed_dependencies": db.ro(ug, "MATCH (a)-[r:DEPENDS_ON_CLOSED]->(b) RETURN r.uid AS uid, a.name AS source, b.name AS target"),
+        "proposed_tickets": db.ro(ug, "MATCH (k:Ticket {proposed: true})-[:ABOUT]->(s) RETURN k.key AS key, k.title AS title, s.name AS service"),
+    }
+    if b_shift:
+        ev.append(evidence(f"{uid}.bottlenecks", ug, "betweenness", {}, [b["uid"] for b in b_shift[:5]], [], asof,
+                           f"the people most work flows through in what-if {uid}; before: "
+                           + ", ".join(f"{b['name']} {b['before']}" for b in b_shift[:5])))
+    approvers = required_approvers(db, bg, json.loads(u["ops_json"]), [b["uid"] for b in broken])
+    risk = score_risk(broken, new_orphans, top_before, top_after, splits, customers, stranded, effect_of)
+    result = {
+        "universe": uid, "base": bg, "title": u["title"], "asof": asof, "broken": broken, "customers": customers,
+        "new_orphans": new_orphans, "stranded": stranded, "collaboration_splits": splits,
+        "bottlenecks": {"before": _top(b_before), "after": _top(b_after), "shift": b_shift[:8]},
+        "influence": {"shift": i_shift[:8]}, "structural": structural, "required_approvers": approvers,
+        "risk": risk, "evidence": ev, "diff_ms": round((time.perf_counter() - t0) * 1000, 1),
+    }
+    ev.append(evidence(f"{uid}.risk", dbm.deck(t), "universe_risk", {"u": uid}, [uid], [], asof,
+                       f"risk of what-if {uid}: {risk['level']} {risk['score']}, the sum of {len(risk['terms'])} terms"))
+    _store_risk(db, t, uid, risk)
+    from orion import findings
+
+    findings.record(db, t, u, result)
+    db.q(deck(db, t), """MATCH (u:Universe {uid: $u}) SET u.risk = $r, u.risk_level = $l, u.diff_json = $d,
+                         u.required_json = $req""",
+         {"u": uid, "r": risk["score"], "l": risk["level"], "d": json.dumps(result), "req": json.dumps(approvers)})
+    return result
 
 
-def _base_date(db: dbm.DB, g: str) -> str:
-    row = db.one(g, "MATCH (c:Company) RETURN c.on AS on")
-    return row["on"] if row and row["on"] else "2026-10-01"
+def _store_risk(db: dbm.DB, t: str, uid: str, risk: dict) -> None:
+    g = deck(db, t)
+    db.q(g, "MATCH (:Universe {uid: $u})-[:SCORED]->(x:RiskTerm) DETACH DELETE x", {"u": uid})
+    if risk["terms"]:
+        db.q(g, """MATCH (u:Universe {uid: $u}) UNWIND $terms AS term
+                   CREATE (u)-[:SCORED]->(:RiskTerm {kind: term.kind, subject: term.subject, points: term.points,
+                                                     why: term.why})""",
+             {"u": uid, "terms": [{k: x[k] for k in ("kind", "subject", "points", "why")} for x in risk["terms"]]})
 
 
-def _year_before(now: str) -> str:
-    return f"{int(now[:4]) - 1}{now[4:10]}"
+def score_risk(broken: list, orphans: list, top_before: list, top_after: list, splits: list | None = None,
+               customers: list | None = None, stranded: list | None = None, effect_of: dict | None = None) -> dict:
+    """The risk score as a sum of named terms, so anyone can see where every point comes from."""
+    terms = []
+
+    def term(kind: str, subject: str, points: float, why: str, ev: str | None = None) -> None:
+        terms.append({"kind": kind, "subject": subject, "points": round(points, 1), "why": why, "evidence": ev})
+
+    for b in broken:
+        effect = b.get("effect", "break")
+        pts = TIER_POINTS.get(b["tier"], 6) * EFFECT_WEIGHT[effect] * (1 if b["hops"] == 1 else FAR_HOP_FACTOR)
+        via = "directly" if b["hops"] == 1 else f"{b['hops']} steps away"
+        term("break", b["service"], pts,
+             f"{TIER_WORD.get(b['tier'], 'supporting')} system would {EFFECT_WORD[effect]} ({via} from "
+             f"{b['because_of']}): {TIER_POINTS.get(b['tier'], 6)} points"
+             + (f" × {EFFECT_WEIGHT[effect]} for how badly" if EFFECT_WEIGHT[effect] != 1 else "")
+             + (f" × {FAR_HOP_FACTOR} for being further away" if b["hops"] > 1 else ""), b.get("evidence"))
+    effect_of = effect_of or {}
+    for c in customers or []:
+        sev = max((impact.SEVERITY[effect_of.get(s, "break")] for s in c.get("service_uids", [])), default=3)
+        w = EFFECT_WEIGHT[next(k for k, v in impact.SEVERITY.items() if v == sev)]
+        base = CUSTOMER_POINTS.get(c["tier"], 2)
+        how = (f"raised {', '.join(c['tickets'][:3])} about" if c["tickets"] else "uses") + f" {', '.join(c['services'][:3])}"
+        term("customer", c["customer"], base * w, f"{c['tier']} customer ({base} points) who {how}")
+    for o in orphans:
+        term("orphan", o["service"], ORPHAN_POINTS.get(o["tier"], 12),
+             f"nobody left would know how this {TIER_WORD.get(o['tier'], 'supporting')} system works", o.get("evidence"))
+    for s in stranded or []:
+        term("stranded", ", ".join(s["services"][:3]), STRANDED_POINTS,
+             "no team would be responsible for these systems any more", s.get("evidence"))
+    for sp in splits or []:
+        term("split", " | ".join(", ".join(g[:3]) for g in sp["groups"]), SPLIT_POINTS,
+             "a group that works together would fall apart", sp.get("evidence"))
+    if top_before[:5] != top_after[:5]:
+        term("bottleneck", "collaboration", BOTTLENECK_POINTS, "the people most work flows through would change")
+    total = sum(x["points"] for x in terms)
+    score = min(100, int(round(total)))
+    lvl = "low" if score < MEDIUM_FROM else "medium" if score < HIGH_FROM else "high"
+    return {"score": score, "level": lvl, "auto_approve": lvl == "low",
+            "reasons": [f"{x['subject']}: {x['why']} (+{x['points']:g})" for x in terms], "terms": terms,
+            "uncapped": round(total, 1)}
 
 
-# ---------------------------------------------------------------- registry
-
-def get(db: dbm.DB, t: str, uid: str) -> dict | None:
-    row = db.one(_deck(db, t), "MATCH (u:Universe {uid: $u}) RETURN u", {"u": uid})
-    if not row:
-        return None
-    u = row["u"]
-    approvals = db.ro(_deck(db, t), """MATCH (a:Approval {universe: $u}) RETURN a.team AS team, a.by AS by,
-                                       a.by_name AS by_name, a.at AS at ORDER BY a.at""", {"u": uid})
-    return {k: v for k, v in u.items() if k not in ("diff", "ops", "ms", "_labels")} | {
-        "ops": json.loads(u["ops"]), "diff": json.loads(u["diff"]), "ms": json.loads(u.get("ms") or "{}"),
-        "approvals": approvals, "required": u.get("required") or []}
-
-
-def listing(db: dbm.DB, t: str, limit: int = 50) -> list[dict]:
-    rows = db.ro(_deck(db, t), """MATCH (u:Universe) RETURN u.uid AS uid, u.title AS title, u.kind AS kind,
-                                  u.status AS status, u.risk AS risk, u.level AS level, u.by AS by,
-                                  u.created_at AS created_at, u.required AS required
-                                  ORDER BY u.created_at DESC, u.uid DESC LIMIT $n""", {"n": limit})
-    return rows
+def replay(db: dbm.DB, t: str, ops: list[dict], asof: str | None = None) -> dict:
+    """What the same ops break on today's company (or the company on `asof`), on a throwaway copy."""
+    base = ep.checkout(db, t, asof, "known" if asof else "true")
+    scratch = f"scratch:{t}:{secrets.token_hex(4)}"
+    db.copy(base["graph"], scratch)
+    try:
+        resolved = [opsm.resolve_op(db, scratch, o) for o in ops]
+        opsm.apply_physical(db, scratch, resolved, "replay")
+        reach = broken_in(db, scratch)
+        return {"broken": {k: v.name for k, v in reach.items()}, "graph": base["graph"]}
+    finally:
+        db.delete(scratch)
 
 
-def discard(db: dbm.DB, t: str, uid: str, by: str) -> dict:
-    rec = get(db, t, uid)
-    if not rec:
-        raise KeyError(uid)
-    if rec["status"] != "open":
-        raise ValueError(f"universe {uid} is {rec['status']}; only an open universe can be discarded")
-    db.delete(rec["graph"])
-    db.q(_deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'discarded', u.closed_by = $by, u.closed_at = $at",
-         {"u": uid, "by": by, "at": dbm.clock(db, t)})
-    return get(db, t, uid)
+# ---------------------------------------------------------------- approvals, rebase, merge
+
+def person_teams(db: dbm.DB, t: str, person: str) -> list[dict]:
+    return db.ro(ep.now(db, t), "MATCH (:Person {uid: $p})-[:MEMBER_OF]->(t:Team) RETURN t.uid AS team_uid, t.name AS team",
+                 {"p": person})
 
 
-# ---------------------------------------------------------------- approve, rebase, merge
+def approvals(db: dbm.DB, t: str, uid: str) -> list[dict]:
+    return db.ro(deck(db, t), """MATCH (:Universe {uid: $u})-[:NEEDS]->(a:Approval)
+                                 RETURN a.by AS by, a.team_uid AS team_uid, a.team AS team, a.verdict AS verdict,
+                                        a.at AS at, a.reason AS reason ORDER BY a.at""", {"u": uid})
 
-def stale(db: dbm.DB, t: str, rec: dict) -> bool:
-    return rec["base_version"] != dbm.version(db, t)
+
+def approval_state(db: dbm.DB, t: str, uid: str, u: dict | None = None) -> dict:
+    u = u or get_universe(db, t, uid)
+    required = json.loads(u.get("required_json") or "[]")
+    got = approvals(db, t, uid)
+    approved = {a["team_uid"] for a in got if a["verdict"] == "approved" and a.get("team_uid")}
+    for r in required:
+        r["approved_by"] = [a["by"] for a in got if a["verdict"] == "approved" and a.get("team_uid") == r["team_uid"]]
+    return {"required": required, "missing": [r for r in required if r["team_uid"] not in approved], "approvals": got}
+
+
+class _Lock:
+    """A short Redis lock per universe, so two people deciding at the same moment are taken one at a time."""
+
+    def __init__(self, db: dbm.DB, t: str, uid: str, ttl: int = 120):
+        self.r, self.key, self.ttl, self.token = db.redis, f"orion:lock:{t}:universe:{uid}", ttl, secrets.token_hex(8)
+
+    def __enter__(self):
+        for _ in range(50):
+            if self.r.set(self.key, self.token, nx=True, ex=self.ttl):
+                return self
+            time.sleep(0.1)
+        raise Busy("someone else is deciding on this right now; try again in a moment")
+
+    def __exit__(self, *exc):
+        held = self.r.get(self.key)
+        if (held.decode() if isinstance(held, bytes) else held) == self.token:
+            self.r.delete(self.key)
 
 
 def rebase(db: dbm.DB, t: str, uid: str) -> dict:
-    """The company changed since this universe was forked: fork again from now with the same ops and the same
-    uid, and report how the diff moved. Approvals given against the old diff are dropped."""
-    rec = get(db, t, uid)
-    old_risk, old_summary = rec["risk"], rec["diff"]["summary"]
-    if rec.get("on"):
-        raise ValueError("a backtest is pinned to its date; it can't be rebased")
+    """The company changed since this universe was forked: fork the same ops from now and compare."""
+    u = get_universe(db, t, uid)
+    old = json.loads(u["diff_json"]) if u.get("diff_json") else diff(db, t, uid)
+    ob = sorted(b["service"] for b in old["broken"])
     try:
-        fresh = fork(db, t, rec["ops"], by=rec["by"], kind=rec["kind"], title=rec["title"], uid=uid,
-                     question=rec.get("question"))
-    except opsm.OpError as e:
-        # the company moved on under this plan (what it changes is already gone): close it, keep the record
-        db.delete(rec["graph"])
-        db.q(_deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'obsolete', u.closed_at = $at, u.reason = $r",
-             {"u": uid, "at": dbm.clock(db, t), "r": str(e)})
-        return get(db, t, uid) | {"result": "obsolete", "message": f"This plan no longer applies to the company: {e}"}
-    db.q(_deck(db, t), "MATCH (a:Approval {universe: $u}) DELETE a", {"u": uid})
-    db.q(_deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.rebased_from = $r, u.rebased_summary = $s",
-         {"u": uid, "r": old_risk, "s": old_summary})
-    return get(db, t, uid) | {"rebased": {"from": old_risk, "to": fresh["risk"], "before": old_summary}}
+        new = fork(db, t, json.loads(u["ops_json"]), kind=u["kind"], title=u["title"],
+                   created_by=u.get("created_by", "rebase"), rebased_from=uid)
+    except opsm.ResolveError as e:  # what it changes is gone: there is nothing left to rebase
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'discarded', u.reason = $r",
+             {"u": uid, "r": f"no longer applies: {e}"})
+        db.delete(u["graph"])
+        return {"from": uid, "to": None, "changed": True, "obsolete": str(e),
+                "risk": {"before": old["risk"]["score"], "after": 0, "level_before": old["risk"]["level"], "level_after": "low"},
+                "broken": {"before": ob, "after": [], "no_longer": ob, "newly": []}}
+    nd = new["diff"]
+    nb = sorted(b["service"] for b in nd["broken"])
+    changed = old["risk"]["score"] != nd["risk"]["score"] or ob != nb
+    out = {"from": uid, "to": new["uid"], "changed": changed,
+           "risk": {"before": old["risk"]["score"], "after": nd["risk"]["score"], "level_before": old["risk"]["level"],
+                    "level_after": nd["risk"]["level"]},
+           "broken": {"before": ob, "after": nb, "no_longer": sorted(set(ob) - set(nb)), "newly": sorted(set(nb) - set(ob))},
+           "base_version": {"before": u["base_version"], "after": new["base_version"]}}
+    if changed:
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'rebased', u.rebased_to = $n", {"u": uid, "n": new["uid"]})
+        db.delete(u["graph"])
+    else:  # same outcome on today's company: keep the original and its approvals, drop the check
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.base_version = $v", {"u": uid, "v": new["base_version"]})
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'discarded', u.reason = $r",
+             {"u": new["uid"], "r": f"rebase check for {uid}: unchanged"})
+        db.delete(new["graph"])
+    return {**out, "old_diff": old, "new_diff": nd if changed else None}
 
 
-def approve(db: dbm.DB, t: str, uid: str, user: str, *, force: bool = False) -> dict:
-    """Record an approval for the approver's team. When every required team has approved, merge. A universe that
-    would leave running services depending on something switched off is refused unless forced."""
-    me = who(db, t, user)
-    with db.lock(f"universe:{t}:{uid}", ttl=120):
-        rec = get(db, t, uid)
-        if not rec:
-            raise KeyError(uid)
-        if rec["status"] != "open":
-            raise ValueError(f"universe {uid} is {rec['status']}")
-        if rec["kind"] in ("outage", "backtest"):
-            raise ValueError(f"a{'n' if rec['kind'] == 'outage' else ''} {rec['kind']} is a what-if; there is nothing to merge")
-        if stale(db, t, rec):
-            out = rebase(db, t, uid)
-            if out.get("result") == "obsolete":
-                return out
-            return out | {"result": "rebased", "message": f"The company changed since this was forked. Rebased: risk "
-                                                          f"{out['rebased']['from']} -> {out['rebased']['to']}. Approve again."}
-        required = rec["required"]
-        if me["team"] not in required:
-            raise PermissionError(f"{me['team_name']} isn't one of the teams this change needs "
-                                  f"({', '.join(a['team_name'] for a in rec['diff']['approvals'])})")
-        if not any(a["team"] == me["team"] for a in rec["approvals"]):
-            db.q(_deck(db, t), """CREATE (:Approval {universe: $u, team: $team, by: $by, by_name: $name, at: $at})""",
-                 {"u": uid, "team": me["team"], "by": me["uid"], "name": me["name"], "at": dbm.clock(db, t)})
-        rec = get(db, t, uid)
-        missing = [a for a in rec["diff"]["approvals"] if a["team"] not in {x["team"] for x in rec["approvals"]}]
-        if missing:
-            return rec | {"result": "approved", "waiting_for": missing}
-        if rec["diff"]["dangling"] and not force:
-            return rec | {"result": "blocked", "message": "Every team approved, but running services would still depend "
-                                                          "on something switched off: " + ", ".join(
-                f"{d['dependent_name']} -> {d['on_name']}" for d in rec["diff"]["dangling"])}
-        return merge(db, t, rec, me, forced=bool(rec["diff"]["dangling"]))
+def migration_gaps(ops: list[dict]) -> list[str]:
+    """Services cut off from something the change switches off, with no replacement in the same change."""
+    retired = {o["service"] for o in ops if o["op"] == "deprecate_service"}
+    added = {o["source"] for o in ops if o["op"] == "add_dependency" and o["target"] not in retired}
+    return sorted({o["source"] for o in ops if o["op"] == "remove_dependency" and o["target"] in retired
+                   and o["source"] not in added})
 
 
-def merge(db: dbm.DB, t: str, rec: dict, me: dict, forced: bool = False) -> dict:
-    """Replay the ops into the org graph as facts with a Decision as their source. Resumable: the index of the
-    last applied op is stored, so a merge that fails partway continues where it stopped and never applies an op
-    twice."""
-    g, deck = dbm.org(t), _deck(db, t)
-    row = db.one(deck, "MATCH (u:Universe {uid: $u}) RETURN u.status AS s, u.applied AS applied, u.decision AS dec",
-                 {"u": rec["uid"]})
-    if row["s"] == "open":
-        db.q(deck, "MATCH (u:Universe {uid: $u}) WHERE u.status = 'open' SET u.status = 'merging', u.applied = 0",
-             {"u": rec["uid"]})
-        row = {"s": "merging", "applied": 0, "dec": None}
-    if row["s"] != "merging":
-        raise ValueError(f"universe {rec['uid']} is {row['s']}")
-    at = dbm.tick(db, t)
-    dec = row["dec"] or f"dec:{rec['uid']}"
-    if not row["dec"]:
-        affects = sorted({o[k] for o in rec["ops"] for k in ("service", "replacement", "on") if o.get(k)})
-        db.q(g, """MERGE (d:Decision {uid: $uid})
-                   ON CREATE SET d.key = $key, d.title = $title, d.status = 'accepted', d.at = $at, d.day = $day,
-                                 d.summary = $summary, d.universe = $u, d.forced = $forced
-                   WITH d UNWIND $approvers AS a MATCH (p:Person {uid: a}) MERGE (d)-[:DECIDED_BY]->(p)""",
-             {"uid": dec, "key": f"ORN-{rec['uid'][1:]}", "title": rec["title"], "at": at,
-              "day": _day(at), "summary": rec["diff"]["summary"], "u": rec["uid"], "forced": forced,
-              "approvers": [a["by"] for a in rec["approvals"]] + [me["uid"]]})
-        db.q(g, "MATCH (d:Decision {uid: $d}) UNWIND $s AS s MATCH (x:Service {uid: s}) MERGE (d)-[:AFFECTS]->(x)",
-             {"d": dec, "s": affects})
-        db.q(g, "MATCH (d:Decision {uid: $d}) UNWIND $t AS t MATCH (x:Team {uid: t}) MERGE (d)-[:MADE_BY]->(x)",
-             {"d": dec, "t": rec["required"]})
-        db.q(deck, "MATCH (u:Universe {uid: $u}) SET u.decision = $d", {"u": rec["uid"], "d": dec})
-    for i, op in enumerate(rec["ops"]):
-        if i < (row["applied"] or 0):
+def _gate(u: dict, d: dict) -> dict | None:
+    if d["broken"]:
+        retired = sorted({b["because_of"] for b in d["broken"]})
+        direct = sorted({b["service"] for b in d["broken"] if b["hops"] == 1})
+        return {"universe": u["uid"], "retired": retired, "broken": [b["service"] for b in d["broken"]],
+                "needs_migration": direct,
+                "message": (f"Applying this now would leave {len(d['broken'])} system(s) relying on {', '.join(retired)} "
+                            f"after it is switched off. Move {', '.join(direct)} onto a replacement first, or apply "
+                            "anyway and accept that they break.")}
+    gaps = migration_gaps(json.loads(u["ops_json"]))
+    if gaps:
+        return {"universe": u["uid"], "retired": [], "broken": [], "needs_migration": gaps,
+                "message": f"{', '.join(gaps)} would stop relying on a switched-off system with nothing to replace it. "
+                           "Add a change that moves it onto the replacement, or apply anyway."}
+    return None
+
+
+def approve(db: dbm.DB, t: str, uid: str, by: str, note: str = "", force: bool = False) -> dict:
+    with _Lock(db, t, uid):
+        return _approve(db, t, uid, by, note, force)
+
+
+def _approve(db: dbm.DB, t: str, uid: str, by: str, note: str, force: bool) -> dict:
+    """In order: a stale base is rebased (a changed outcome refuses the approval: look at the new diff first); a
+    merge that leaves services relying on something it switches off is blocked unless forced; the approval counts
+    for every required team the person is on; when every required team has approved, it merges.
+    {status: rebase_needed | blocked | waiting | merged}."""
+    u = get_universe(db, t, uid)
+    if u["kind"] in ("outage", "backtest"):
+        raise ValueError(f"this is a what-if about {'an outage' if u['kind'] == 'outage' else 'the past'}; there is nothing to apply")
+    if u["status"] not in DECIDABLE:
+        raise ValueError(f"universe {uid} is {u['status']}")
+    if u["status"] == "merge_failed":
+        return {"status": "merged", **merge(db, t, uid, by, note, force=force), **approval_state(db, t, uid)}
+    if u["base_version"] != dbm.version(db, t):
+        rb = rebase(db, t, uid)
+        if rb["changed"]:
+            return {"status": "rebase_needed", **rb}
+        u = get_universe(db, t, uid)
+    d = json.loads(u["diff_json"]) if u.get("diff_json") else diff(db, t, uid)
+    blocked = _gate(u, d)
+    if blocked and not force:
+        return {"status": "blocked", **blocked}
+    teams = person_teams(db, t, by)
+    required = {r["team_uid"]: r for r in json.loads(u.get("required_json") or "[]")}
+    now = dbm.clock(db, t)
+    counted = [x for x in teams if x["team_uid"] in required] or [{"team_uid": None, "team": None}]
+    for x in counted:
+        db.q(deck(db, t), """MATCH (u:Universe {uid: $u})
+                             CREATE (u)-[:NEEDS]->(:Approval {by: $by, team_uid: $tu, team: $tn, verdict: 'approved',
+                                                              at: $at, reason: $r, forced: $f})""",
+             {"u": uid, "by": by, "tu": x["team_uid"], "tn": x["team"], "at": now, "r": note, "f": force})
+    state = approval_state(db, t, uid, u)
+    if state["missing"]:
+        return {"status": "waiting", "universe": uid, **state, "counted_for": [x["team"] for x in counted if x["team"]]}
+    return {"status": "merged", **merge(db, t, uid, by, note, force=force), **state}
+
+
+def merge(db: dbm.DB, t: str, uid: str, approved_by: str, note: str = "", force: bool = False) -> dict:
+    """Replay the universe's ops into the org graph. Resumable: the number of ops already applied is stored, so a
+    merge that fails partway continues where it stopped and never applies an op twice."""
+    u = get_universe(db, t, uid)
+    if u["status"] not in DECIDABLE:
+        raise ValueError(f"universe {uid} is {u['status']}")
+    d = json.loads(u["diff_json"]) if u.get("diff_json") else diff(db, t, uid)
+    blocked = _gate(u, d)
+    if blocked and not force:
+        raise MergeBlocked(blocked["message"], blocked)
+    if not db.q(deck(db, t), """MATCH (u:Universe {uid: $u}) WHERE u.status IN $ok SET u.status = 'merging'
+                                RETURN u.uid AS uid""", {"u": uid, "ok": list(DECIDABLE)}):
+        raise ValueError(f"universe {uid} is already being applied")
+    try:
+        return _merge(db, t, u, d, approved_by, note, force)
+    except Exception as e:
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.status = 'merge_failed', u.merge_error = $e",
+             {"u": uid, "e": f"{type(e).__name__}: {e}"[:500]})
+        raise
+
+
+def _merge(db: dbm.DB, t: str, u: dict, d: dict, by: str, note: str, force: bool) -> dict:
+    uid = u["uid"]
+    ops = json.loads(u["ops_json"])
+    resumed = int(u.get("merge_done") or 0)
+    now = u.get("merge_at") or dbm.tick(db, t)
+    db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.merge_at = $now", {"u": uid, "now": now})
+    g = dbm.org(t)
+    record, dec = f"doc:merge-{uid}", f"dec:merge-{uid}"
+    approvers = sorted({a["by"] for a in approvals(db, t, uid) if a["verdict"] == "approved"} | {by})
+    db.q(g, """MERGE (src:Source:Doc {uid: $src})
+               ON CREATE SET src.kind = 'merge', src.title = $title, src.at = $now, src.text = $text, src.day = $day
+               MERGE (d:Decision {uid: $dec})
+               ON CREATE SET d.key = $key, d.title = $title, d.status = 'accepted', d.at = $now, d.decided_at = $now,
+                             d.summary = $text, d.day = $day, d.universe = $u, d.forced = $forced
+               MERGE (d)-[:EVIDENCED_BY]->(src)""",
+         {"src": record, "dec": dec, "key": f"MERGE-{uid}", "title": u["title"], "now": now, "u": uid,
+          "forced": force and bool(d["broken"]), "day": _day(now),
+          "text": note or f"Applied what-if {uid} after review (risk {u.get('risk_level', '?')} {u.get('risk', '?')})."})
+    db.q(g, "MATCH (d:Decision {uid: $dec}) UNWIND $p AS a MATCH (p:Person {uid: a}) MERGE (d)-[:DECIDED_BY]->(p)",
+         {"dec": dec, "p": approvers})
+    db.q(g, "MATCH (d:Decision {uid: $dec}) UNWIND $teams AS x MATCH (tm:Team {uid: x}) MERGE (d)-[:MADE_BY]->(tm)",
+         {"dec": dec, "teams": [r["team_uid"] for r in json.loads(u.get("required_json") or "[]")]})
+    t0 = time.perf_counter()
+    closed, log, touched = [], [], set()
+    for i, op in enumerate(ops):
+        for f in ("service", "source", "target", "decision", "person", "team", "into"):
+            if op.get(f):
+                touched.add(op[f])
+        target = op.get("service") or op.get("source") or op.get("decision")
+        if target:
+            db.q(g, "MATCH (d:Decision {uid: $dec}), (x {uid: $x}) MERGE (d)-[:AFFECTS]->(x)", {"dec": dec, "x": target})
+        if i < resumed:
             continue
-        opsm.apply_temporal(db, g, op, at, dec)
-        db.q(deck, "MATCH (u:Universe {uid: $u}) SET u.applied = $i", {"u": rec["uid"], "i": i + 1})
-    dbm.bump(db, t)
-    db.q(deck, """MATCH (u:Universe {uid: $u}) SET u.status = 'merged', u.merged_at = $at, u.merged_by = $by""",
-         {"u": rec["uid"], "at": at, "by": me["uid"]})
-    db.delete(rec["graph"])
-    from orion import watch
+        got = opsm.apply_temporal(db, g, op, now, dec)
+        closed += got
+        log.append({"op": op["op"], "closed": got})
+        db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.merge_done = $i", {"u": uid, "i": i + 1})
+    v = dbm.bump(db, t)
+    db.q(deck(db, t), """MATCH (u:Universe {uid: $u}) SET u.status = 'merged', u.merged_at = $now, u.merged_by = $by,
+                         u.forced = $f, u.decision = $dec""",
+         {"u": uid, "now": now, "by": by, "f": force and bool(d["broken"]), "dec": dec})
+    db.delete(u["graph"])
+    from orion.agents import sentinel
 
-    rechecked = watch.after_change(db, t, _touched(rec), cause=dec)
-    return get(db, t, rec["uid"]) | {"result": "merged", "decision": dec, "rechecked": rechecked}
+    expired = sentinel.after_change(db, t, closed, sorted(touched), record, now)
+    return {"universe": uid, "decision": dec, "merged_at": now, "version": v, "log": log,
+            "forced": force and bool(d["broken"]), "expired_answers": len(expired),
+            "merge_ms": round((time.perf_counter() - t0) * 1000, 1)}
 
 
-def _touched(rec: dict) -> list[str]:
-    out = {o[k] for o in rec["ops"] for k in o if k != "op" and isinstance(o[k], str) and ":" in o[k]}
-    out |= {b["uid"] for b in rec["diff"]["breaks"]}
-    return sorted(out)
+def discard(db: dbm.DB, t: str, uid: str, by: str = "cli", reason: str = "") -> dict:
+    """Reject an open universe. Anything else is refused: rejecting a merged one would rewrite what happened."""
+    with _Lock(db, t, uid):
+        u = get_universe(db, t, uid)
+        if u["status"] != "open":
+            raise ValueError(f"universe {uid} is {u['status']}; only an open one can be rejected")
+        now = dbm.clock(db, t)
+        db.q(deck(db, t), """MATCH (u:Universe {uid: $u}) WHERE u.status = 'open'
+                             SET u.status = 'discarded', u.discarded_at = $now
+                             CREATE (u)-[:NEEDS]->(:Approval {by: $by, verdict: 'rejected', at: $now, reason: $r})""",
+             {"u": uid, "now": now, "by": by, "r": reason})
+        db.delete(u["graph"])
+        return {"universe": uid, "status": "discarded"}
+
+
+def gc(db: dbm.DB, t: str, keep: int = 30) -> int:
+    """Discard the oldest open what-ifs beyond `keep`. Proposals awaiting approval are never collected."""
+    every = [u for u in list_universes(db, t) if u["status"] == "open" and u["kind"] != "dryrun"]
+    n = 0
+    for u in every[keep:]:
+        try:
+            discard(db, t, u["uid"], by="janitor", reason="garbage-collected")
+            n += 1
+        except Exception:
+            pass
+    return n
 
 
 def _day(at: str) -> int:

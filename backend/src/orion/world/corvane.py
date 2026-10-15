@@ -286,6 +286,7 @@ def _d(iso: str) -> date:
 
 
 _LEDGER_REVIEWS: dict[str, int] = {}
+_HIDDEN = {pid(n) for n in ("Sven Lindqvist", "Aiko Tanaka", "Nadia Haddad", "Omar Farouk", "Grace Liu")}
 _MAINTAINERS: dict[str, list[str]] = {}
 
 
@@ -434,6 +435,11 @@ def _who(rng: random.Random, w: World, s: dict, on: str) -> tuple[str | None, li
         crew = [pid("Yusuf Demir"), pid("Kofi Mensah")]
         a = rng.choice(crew)
         return a, [c for c in crew if c != a]
+    # since June the Build Insights five spend most of their time on it, and little on their home teams' services
+    if on >= "2026-06-01":
+        side = random.Random(f"{on}|{s['uid']}")  # its own stream: the rest of the history doesn't shift
+        busy = [p for p in owners if p in _HIDDEN and side.random() < 0.85]
+        owners = [p for p in owners if p not in busy]
     if not owners:
         return None, []
     # most of a service's changes come from the two or three people who look after it

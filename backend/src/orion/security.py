@@ -13,7 +13,7 @@ import secrets
 import time
 from collections import defaultdict, deque
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from orion.config import env
 
@@ -40,6 +40,9 @@ def read(token: str) -> dict:
     return data
 
 
+VIEWER = "viewer"  # repo tenants have no personas: everyone reads as the viewer
+
+
 class Session:
     def __init__(self, tenant: str, user: str):
         self.tenant, self.user = tenant, user
@@ -54,6 +57,17 @@ def session(tenant: str, authorization: str | None = Header(None), token: str | 
     if data["t"] != tenant:
         raise HTTPException(403, "this token is for another company")
     return Session(tenant, data["u"])
+
+
+Auth = Depends(session)
+issue_token = mint
+
+
+def same_user(s: Session, claimed: str | None) -> str:
+    """A body or query field naming a user may only name the caller."""
+    if claimed and claimed != s.user:
+        raise HTTPException(403, "you can only act as yourself")
+    return s.user
 
 
 def require_admin(request: Request) -> None:

@@ -10,7 +10,12 @@
 
 from __future__ import annotations
 
+import contextvars
 import threading
+import time
+from collections import deque
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from falkordb import FalkorDB
@@ -41,6 +46,31 @@ def deck(t: str) -> str:
     return f"deck:{t}"
 
 
+# Who a query runs for: "ui" (a screen drawing itself), "board" (housekeeping), "task:<uid>" (an agent's work).
+# The Activity screen's technical log shows the agents' queries only.
+ORIGIN: contextvars.ContextVar[str | None] = contextvars.ContextVar("orion_origin", default=None)
+
+
+@contextmanager
+def tagged(origin: str | None):
+    token = ORIGIN.set(origin)
+    try:
+        yield
+    finally:
+        ORIGIN.reset(token)
+
+
+@dataclass
+class Logged:
+    graph: str
+    cypher: str
+    ms: float
+    rows: int
+    read_only: bool
+    at: float
+    origin: str | None
+
+
 def plain(v: Any) -> Any:
     """FalkorDB values as JSON-ready Python: nodes and edges become dicts of their properties."""
     if isinstance(v, Node):
@@ -64,18 +94,29 @@ class DB:
                                username=config.FALKORDB_USERNAME, password=config.FALKORDB_PASSWORD,
                                ssl=config.FALKORDB_SSL)
         self.redis = self.client.connection
+        self.log: deque[Logged] = deque(maxlen=400)
+
+    def _logged(self, name: str, cypher: str, t0: float, n: int, ro: bool) -> None:
+        self.log.append(Logged(name, cypher, (time.perf_counter() - t0) * 1000, n, ro, time.time() * 1000,
+                               ORIGIN.get()))
 
     def graph(self, name: str):
         return self.client.select_graph(name)
 
     def q(self, name: str, cypher: str, params: dict | None = None, timeout: int | None = None) -> list[dict]:
+        t0 = time.perf_counter()
         res = self.graph(name).query(cypher, params or {}, timeout=timeout)
-        return _rows(res)
+        out = _rows(res)
+        self._logged(name, cypher, t0, len(out), False)
+        return out
 
     def ro(self, name: str, cypher: str, params: dict | None = None, timeout: int | None = 10000) -> list[dict]:
         """Read through GRAPH.RO_QUERY: FalkorDB refuses any write, so a tool can't change the graph by accident."""
+        t0 = time.perf_counter()
         res = self.graph(name).ro_query(cypher, params or {}, timeout=timeout)
-        return _rows(res)
+        out = _rows(res)
+        self._logged(name, cypher, t0, len(out), True)
+        return out
 
     def one(self, name: str, cypher: str, params: dict | None = None) -> dict | None:
         rows = self.ro(name, cypher, params)
@@ -84,10 +125,13 @@ class DB:
     def exists(self, name: str) -> bool:
         return bool(self.redis.exists(name))
 
-    def copy(self, src: str, dst: str) -> None:
+    def copy(self, src: str, dst: str) -> float:
+        """GRAPH.COPY; returns how long it took, in milliseconds."""
         if self.exists(dst):
             self.delete(dst)
+        t0 = time.perf_counter()
         self.redis.execute_command("GRAPH.COPY", src, dst)
+        return (time.perf_counter() - t0) * 1000
 
     def delete(self, name: str) -> None:
         if self.exists(name):

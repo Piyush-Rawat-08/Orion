@@ -1,25 +1,24 @@
-"""Typed claims, checked by the graph.
+"""Typed claims, checked by the graph instead of by a model.
 
-An answer is a list of sentences, each with a claim the graph can check:
+Most of what an answer asserts is a set or a number: "switching off sso-legacy breaks invoice-render and
+reports-legacy", "only Ines Okafor knows the ledger", "the risk is 65". The Navigator submits each claim with its kind,
+subject and objects, and this module checks it: the claimed set must equal (or, for a non-exhaustive claim, be
+contained in) the set the graph returns; the claimed number must equal the number a query returns. "verified" means
+the graph returned exactly that, and every check carries its receipt: the graph, the query and what it returned.
 
-    knows        subject: service      objects: people        who knows it now
-    owns         subject: team         objects: services      (or subject: service, objects: [team])
-    depends_on   subject: service      objects: services      direct dependencies
-    dependents   subject: service      objects: services      everything that depends on it, any depth
-    breaks       scenario: universe    objects: services      what would break in that universe
-    approvers    scenario: universe    objects: teams         who must approve that change
-    exposed      scenario: universe    objects: customers     which customers it would reach
-    decision     subject: decision     value: status          accepted / superseded / reversed
-    count        subject + metric      value: number          knowers, dependents, members, risk
-    text         anything else, judged by the fast model on the rows it cites; never "verified"
+    kind         subject          objects / value                          check
+    breaks       universe id      services that would break                walk from :Retired in that universe
+    knows        service          people                                   (Person)-[:KNOWS]->(service)
+    owns         service          teams                                    OWNS, declared or de facto
+    depends_on   service          services (measure 'dependents' flips it) walk over DEPENDS_ON, any depth
+    decided      decision key     value = status; objects = what it affects
+    count        entity           value; measure = knowers | owners | dependents | dependencies | broken
+    metric       entity/universe  value; measure = risk | bus_factor | tier
+    free         -                -                                        no structured check: a model judges it
 
-Statuses: verified (the graph returned exactly that), partial (true, but the sentence names things the claim
-doesn't check), contradicted (the graph says otherwise), outdated (it was true when it was said, and the company
-has changed since; set by watch.py), unconfirmed (a name matches nothing or several things), judged / unsupported
-(free text, by the model).
-
-The sentence is held to its claim: "only", "all", "alone", "nobody else" make a set claim exhaustive whatever the
-model typed, and a set claim that names nothing is refused.
+A sentence is held to its claim: "only", "all", "alone" make a set claim exhaustive whatever the model typed, a set
+claim that names nothing is refused, and a sentence that names something the check didn't cover is at most 'partial'.
+A name that matches nothing (or several things) gives 'unsupported' (couldn't confirm), never 'contradicted'.
 """
 
 from __future__ import annotations
@@ -28,239 +27,325 @@ import json
 import re
 
 from orion import db as dbm
-from orion import impact, llm
-from orion.tools import Ctx
+from orion import epoch as ep
+from orion import impact
+from orion import ops as opsm
+from orion.queries import cypher
 
-TYPES = ["knows", "owns", "depends_on", "dependents", "breaks", "approvers", "exposed", "decision", "count", "text"]
-METRICS = ["knowers", "dependents", "members", "risk"]
-EXHAUSTIVE = re.compile(r"\b(only|alone|all|every|nobody else|no one else|the last|sole|solely|just)\b", re.I)
-
-SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["sentence", "type", "subject", "objects", "exhaustive", "value", "scenario", "evidence"],
-    "properties": {
-        "sentence": {"type": "string"},
-        "type": {"type": "string", "enum": TYPES},
-        "subject": {"type": "string", "description": "the entity the claim is about (name or uid); '' for text"},
-        "objects": {"type": "array", "items": {"type": "string"}},
-        "exhaustive": {"type": "boolean", "description": "true when the sentence says these are all of them"},
-        "value": {"type": ["string", "number", "null"], "description": "decision status, or the number of a count"},
-        "metric": {"anyOf": [{"type": "string", "enum": METRICS}, {"type": "null"}]},
-        "scenario": {"type": ["string", "null"], "description": "universe id for 'breaks' and risk counts"},
-        "evidence": {"type": "array", "items": {"type": "string"}, "description": "evidence ids (e1, e2...)"},
-    },
-}
+KINDS = ["breaks", "knows", "owns", "depends_on", "decided", "count", "metric", "free"]
+MEASURES = ["knowers", "owners", "dependents", "dependencies", "broken", "risk", "bus_factor", "tier"]
+SET_KINDS = ("breaks", "knows", "owns", "depends_on")
+EXHAUSTIVE_WORDS = re.compile(r"\b(only|just|all|every|exactly|sole|solely|alone|nobody else|no one else|none other|"
+                              r"the whole|entire)\b", re.I)
+MENTION_LABELS = ("Service", "Person", "Customer", "Decision")
 
 
-class Unresolved(Exception):
-    pass
+class CheckError(Exception):
+    """The claim can't be checked as typed."""
+
+    def __init__(self, message: str, verdict: str = "unverified"):
+        super().__init__(message)
+        self.verdict = verdict
 
 
-def _resolve(ctx: Ctx, name: str, label: str | None = None) -> str:
+def _uid(db: dbm.DB, graph: str, label: str, ref: str) -> str:
     try:
-        return ctx.one(name, label)["uid"]
-    except LookupError as e:
-        raise Unresolved(str(e)) from e
+        return opsm.resolve(db, graph, label, ref)
+    except opsm.ResolveError as e:
+        raise CheckError(str(e), "unsupported") from None
 
 
-def truth(ctx: Ctx, claim: dict, replay_cache: dict | None = None) -> tuple[set | str | float | None, dict]:
-    """What the graph says, for the claim's subject: a set of uids, a status, or a number. Plus how it found out."""
-    t, g = claim["type"], ctx.now
-    db = ctx.db
-    if t == "knows":
-        s = _resolve(ctx, claim["subject"], "Service")
-        rows = db.ro(g, "MATCH (p:Person)-[:KNOWS]->(:Service {uid: $s}) RETURN p.uid AS uid", {"s": s})
-        return {r["uid"] for r in rows}, {"subject": s, "query": "MATCH (p:Person)-[:KNOWS]->(:Service {uid: $s})"}
-    if t == "owns":
-        s = _resolve(ctx, claim["subject"])
-        if s.startswith("team:"):
-            rows = db.ro(g, "MATCH (:Team {uid: $s})-[:OWNS]->(x:Service) RETURN x.uid AS uid", {"s": s})
-        else:
-            rows = db.ro(g, "MATCH (x:Team)-[:OWNS]->(:Service {uid: $s}) RETURN x.uid AS uid", {"s": s})
-        return {r["uid"] for r in rows}, {"subject": s, "query": "OWNS"}
-    if t == "depends_on":
-        s = _resolve(ctx, claim["subject"], "Service")
-        rows = db.ro(g, "MATCH (:Service {uid: $s})-[:DEPENDS_ON]->(x) RETURN x.uid AS uid", {"s": s})
-        return {r["uid"] for r in rows}, {"subject": s, "query": "MATCH (s)-[:DEPENDS_ON]->(x)"}
-    if t == "dependents":
-        s = _resolve(ctx, claim["subject"], "Service")
-        return set(impact.walk(db, g, [s])), {"subject": s, "query": "breadth-first walk up DEPENDS_ON"}
-    if t == "breaks":
-        d = scenario_diff(ctx, claim["scenario"], replay_cache)
-        return {b["uid"] for b in d["breaks"] if b["effect"] == "break"}, {"scenario": claim["scenario"],
-                                                                           "query": "fork + diff"}
-    if t == "approvers":
-        d = scenario_diff(ctx, claim["scenario"], replay_cache)
-        return {a["team"] for a in d["approvals"]}, {"scenario": claim["scenario"], "query": "fork + diff: approvals"}
-    if t == "exposed":
-        d = scenario_diff(ctx, claim["scenario"], replay_cache)
-        return {c["uid"] for c in d["customers"]}, {"scenario": claim["scenario"], "query": "fork + diff: customers"}
-    if t == "decision":
-        s = _resolve(ctx, claim["subject"], "Decision")
-        row = db.one(ctx.org, "MATCH (d:Decision {uid: $s}) RETURN d.status AS status", {"s": s})
-        return row["status"], {"subject": s, "query": "MATCH (d:Decision {uid: $s}) RETURN d.status"}
-    if t == "count":
-        m = claim.get("metric") or ("risk" if claim.get("scenario") else None)
-        if m == "risk":
-            return scenario_diff(ctx, claim["scenario"], replay_cache)["risk"]["score"], {"scenario": claim["scenario"]}
-        sub = dict(claim, type={"knowers": "knows", "dependents": "dependents", "members": "members"}.get(m, ""))
-        if m == "members":
-            s = _resolve(ctx, claim["subject"], "Team")
-            rows = db.ro(g, "MATCH (p:Person)-[:MEMBER_OF]->(:Team {uid: $s}) RETURN p.uid AS uid", {"s": s})
-            return len(rows), {"subject": s}
-        if m in ("knowers", "dependents"):
-            got, how = truth(ctx, sub, replay_cache)
-            return len(got), how
-        raise Unresolved(f"unknown metric {m}")
-    raise ValueError(t)
-
-
-def scenario_diff(ctx: Ctx, uid: str | None, cache: dict | None = None) -> dict:
-    """A universe's diff, on today's company: the stored one if nothing changed since it was forked, otherwise the
-    same ops replayed on a throwaway copy of today's company."""
-    from orion import universe as uv
-
-    if not uid:
-        raise Unresolved("a 'breaks' claim needs the universe it was simulated in")
-    rec = uv.get(ctx.db, ctx.tenant, uid)
-    if not rec:
-        raise Unresolved(f"no universe {uid}")
-    if rec.get("on"):
-        return rec["diff"]  # a backtest is about its date, not about today
-    if rec["base_version"] == dbm.version(ctx.db, ctx.tenant) and rec["status"] == "open":
-        return rec["diff"]
-    key = uid + "@" + str(dbm.version(ctx.db, ctx.tenant))
-    if cache is not None and key in cache:
-        return cache[key]
-    d = uv.replay(ctx.db, ctx.tenant, rec["ops"])
-    if cache is not None:
-        cache[key] = d
-    return d
-
-
-def check(ctx: Ctx, claim: dict, rows_by_evidence: dict | None = None, cache: dict | None = None) -> dict:
-    """Check one claim now. Returns {status, expected, missing, extra, why} and never raises on bad input."""
-    t = claim.get("type", "text")
-    out = {"checked_at": dbm.clock(ctx.db, ctx.tenant)}
-    if t == "text":
-        return out | _judge(claim, rows_by_evidence or {})
-    sentence = claim.get("sentence", "")
-    exhaustive = bool(claim.get("exhaustive")) or bool(EXHAUSTIVE.search(sentence))
-    try:
-        got, how = truth(ctx, claim, cache)
-    except Unresolved as e:
-        return out | {"status": "unconfirmed", "why": f"couldn't confirm: {e}"}
-    except Exception as e:  # a malformed claim never counts as checked
-        return out | {"status": "unconfirmed", "why": f"couldn't check: {e}"}
-    names = _names(ctx)
-    if isinstance(got, set):
-        if not claim.get("objects"):
-            if exhaustive and not got:
-                return out | {"status": "verified", "expected": [], "why": "the graph returns nothing, as claimed", **how}
-            return out | {"status": "unconfirmed", "why": "a set claim has to name what it is about"}
+def _any_uid(db: dbm.DB, graph: str, ref: str) -> str | None:
+    for label in ("Service", "Person", "Team", "Customer", "Decision", "Project"):
         try:
-            label = {"knows": "Person", "dependents": "Service", "depends_on": None, "breaks": "Service",
-                     "approvers": "Team", "exposed": "Customer"}.get(t)
-            objs = {_resolve(ctx, o, label) for o in claim["objects"]}
-        except Unresolved as e:
-            return out | {"status": "unconfirmed", "why": f"couldn't confirm: {e}"}
-        missing, extra = sorted(got - objs), sorted(objs - got)
-        ok = (not missing and not extra) if exhaustive else not extra
-        res = {"expected": sorted(names.get(u, u) for u in got), "missing": [names.get(u, u) for u in missing],
-               "extra": [names.get(u, u) for u in extra], "exhaustive": exhaustive, **how}
-        if not ok:
-            why = []
-            if extra:
-                why.append("not true of " + ", ".join(names.get(u, u) for u in extra))
-            if exhaustive and missing:
-                why.append("also " + ", ".join(names.get(u, u) for u in missing))
-            return out | res | {"status": "contradicted", "why": "; ".join(why)}
-        covered = objs | {how.get("subject")} | _scenario_entities(ctx, claim)
-        return out | res | _sentence_scope(ctx, sentence, covered, names)
-    want = claim.get("value")
-    if isinstance(got, (int, float)):
+            return opsm.resolve(db, graph, label, ref)
+        except opsm.ResolveError:
+            continue
+    return None
+
+
+def mentioned(db: dbm.DB, t: str, text: str, labels: tuple[str, ...] | None = None) -> list[dict]:
+    res = opsm.resolver(db, dbm.org(t))
+    uids = res.mentions(text or "")
+    rows = db.ro(dbm.org(t), "MATCH (n) WHERE n.uid IN $u RETURN n.uid AS uid, coalesce(n.name, n.key) AS name, labels(n)[0] AS label",
+                 {"u": uids}) if uids else []
+    return [r for r in rows if labels is None or r["label"] in labels]
+
+
+def _universe(db: dbm.DB, t: str, ref: str, need_graph: bool = True) -> dict:
+    from orion.universe import deck
+
+    ref = (ref or "").strip()
+    row = db.one(deck(db, t), "MATCH (u:Universe) WHERE u.uid = $r OR u.graph = $r RETURN properties(u) AS u", {"r": ref})
+    if not row:
+        raise CheckError(f"no universe {ref}", "unverified")
+    u = row["u"]
+    if need_graph and not db.exists(u["graph"]):
+        raise CheckError(f"universe {u['uid']} was {u['status']}; its graph is gone", "expired")
+    return u
+
+
+def _covered(db: dbm.DB, t: str, graph: str, claim: dict) -> set[str]:
+    out: set[str] = set()
+    for ref in [claim.get("subject")] + list(claim.get("objects") or []):
+        if ref and (u := _any_uid(db, graph, ref)):
+            out.add(u)
+    subject = (claim.get("subject") or "").strip()
+    if subject:
         try:
-            ok = float(want) == float(got)
-        except (TypeError, ValueError):
-            ok = False
-    else:
-        ok = str(want).lower() == str(got).lower()
-    if not ok:
-        return out | {"status": "contradicted", "expected": got, "why": f"the graph says {got}", **how}
-    covered = {how.get("subject")} | _scenario_entities(ctx, claim)
-    if t == "decision":
-        # a decision's sentence may name what it governs
-        covered |= {r["uid"] for r in ctx.db.ro(ctx.org, "MATCH (:Decision {uid: $d})-[:AFFECTS]->(s) RETURN s.uid AS uid",
-                                                {"d": how.get("subject")})}
-    return out | {"expected": got, **how} | _sentence_scope(ctx, sentence, covered, names)
-
-
-def _sentence_scope(ctx: Ctx, sentence: str, covered: set, names: dict) -> dict:
-    """Verified only if the sentence doesn't name something the check didn't cover."""
-    named = set(ctx.resolver().mentions(sentence))
-    beyond = sorted(u for u in named - covered if not u.startswith(("tkt:", "dec:")))
-    if beyond:
-        return {"status": "partial", "why": "the sentence also names " + ", ".join(names.get(u, u) for u in beyond)
-                + ", which this check doesn't cover"}
-    return {"status": "verified", "why": "the graph returned exactly this"}
-
-
-def _scenario_entities(ctx: Ctx, claim: dict) -> set:
-    from orion import universe as uv
-
-    if not claim.get("scenario"):
-        return set()
-    rec = uv.get(ctx.db, ctx.tenant, claim["scenario"])
-    if not rec:
-        return set()
-    return {v for o in rec["ops"] for k, v in o.items() if k != "op" and isinstance(v, str)}
-
-
-_NAMES: dict[str, dict] = {}
-
-
-def _names(ctx: Ctx) -> dict:
-    key = f"{ctx.tenant}:{dbm.version(ctx.db, ctx.tenant)}"
-    if key not in _NAMES:
-        rows = ctx.db.ro(ctx.org, "MATCH (n) WHERE n.uid IS NOT NULL AND (n:Person OR n:Service OR n:Team OR n:Customer "
-                                  "OR n:Decision) RETURN n.uid AS uid, coalesce(n.name, n.key) AS name")
-        _NAMES.clear()
-        _NAMES[key] = {r["uid"]: r["name"] for r in rows}
-    return _NAMES[key]
-
-
-JUDGE = {"type": "object", "additionalProperties": False, "required": ["supported", "why"],
-         "properties": {"supported": {"type": "boolean"}, "why": {"type": "string"}}}
-
-
-def _judge(claim: dict, rows_by_evidence: dict) -> dict:
-    cited = {e: rows_by_evidence.get(e) for e in claim.get("evidence") or [] if e in rows_by_evidence}
-    if not cited:
-        return {"status": "unsupported", "why": "cites no evidence"}
-    if not llm.available():
-        return {"status": "unsupported", "why": "no model to judge free text"}
-    try:
-        r = llm.json_call("You check one sentence against the database rows it cites. Supported means every part of "
-                          "the sentence follows from the rows. Be strict; answer briefly.",
-                          f"Sentence: {claim['sentence']}\n\nRows:\n{json.dumps(cited, default=str)[:12000]}", JUDGE)
-    except Exception as e:
-        return {"status": "unsupported", "why": f"couldn't judge: {e}"}
-    return {"status": "judged" if r["supported"] else "unsupported", "why": r["why"]}
-
-
-def about(ctx: Ctx, claim: dict, result: dict) -> list[str]:
-    """The entities a claim depends on: when any of them changes, the claim is re-checked."""
-    out = set(_scenario_entities(ctx, claim))
-    if result.get("subject"):
-        out.add(result["subject"])
-    for o in claim.get("objects") or []:
-        try:
-            out.add(ctx.one(o)["uid"])
-        except LookupError:
+            u = _universe(db, t, subject, need_graph=False)
+            out |= {v for o in json.loads(u["ops_json"]) for k, v in o.items() if k != "op" and isinstance(v, str)}
+        except CheckError:
             pass
-    names = {v: k for k, v in _names(ctx).items()}
-    expected = result.get("expected")
-    for n in expected if isinstance(expected, list) else []:
-        if n in names:
-            out.add(names[n])
-    return sorted(u for u in out if u)
+    return out
+
+
+def _strings(v) -> set[str]:
+    if isinstance(v, str):
+        return {v}
+    if isinstance(v, dict):
+        return set().union(*(_strings(x) for x in v.values())) if v else set()
+    if isinstance(v, (list, tuple, set)):
+        return set().union(*(_strings(x) for x in v)) if v else set()
+    return set()
+
+
+def _consistency(db: dbm.DB, t: str, graph: str, claim: dict, shown: set[str]) -> str | None:
+    """Entities the sentence names that neither the claim nor the check's own result accounts for."""
+    covered = _covered(db, t, graph, claim)
+    extra = [m["name"] for m in mentioned(db, t, claim.get("text") or "", MENTION_LABELS)
+             if m["uid"] not in covered and m["name"] not in shown]
+    return ", ".join(sorted(set(extra))) if extra else None
+
+
+def check(db: dbm.DB, t: str, claim: dict, today: bool = False, asof: str | None = None) -> dict:
+    """{verdict, reason, check} for one typed claim. `today`: a claim about a universe forked before the company
+    last changed is replayed on today's company. `asof`: check it against the company as it was on a date."""
+    kind = claim.get("kind") or "free"
+    if kind == "free":
+        raise CheckError("free-text claim", "free")
+    claim = dict(claim)
+    text = claim.get("text") or ""
+    if kind in SET_KINDS:
+        if EXHAUSTIVE_WORDS.search(text):
+            claim["exhaustive"] = True
+        if not [o for o in claim.get("objects") or [] if o] and not claim.get("exhaustive"):
+            raise CheckError("it names nothing that can be checked", "unverified")
+    out = _check(db, t, claim, today, asof)
+    if text and out["verdict"] == "verified":
+        g = (out.get("check") or {}).get("graph") or ""
+        g = g if g.startswith(("epoch:", "universe:")) else ep.checkout(db, t, asof, "known" if asof else "true")["graph"]
+        extra = _consistency(db, t, g, claim, _strings((out.get("check") or {}).get("result")))
+        if extra:
+            out = {**out, "verdict": "partial",
+                   "reason": f"{out['reason']}; the sentence also names {extra}, which this check didn't cover"}
+    return out
+
+
+def _names(db: dbm.DB, graph: str, uids) -> list[str]:
+    got = impact.names(db, graph, list(uids))
+    return sorted(got.get(u, u) for u in uids)
+
+
+def _set_verdict(claimed: set, actual: set, exhaustive: bool, names) -> tuple[str, str]:
+    extra, missing = claimed - actual, actual - claimed
+    if extra:
+        return "contradicted", f"the records don't show {', '.join(names(extra))}"
+    if exhaustive and missing:
+        return "partial", f"the records also show {', '.join(names(missing))}"
+    if not claimed and actual and exhaustive:
+        return "contradicted", f"the records show {', '.join(names(actual))}"
+    return "verified", ("the records show exactly this" if exhaustive else "the records show each of these")
+
+
+def _num(v) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def receipt(graph: str, query: str, params: dict, result, text: str | None = None) -> dict:
+    return {"graph": graph, "query": query, "cypher": text or cypher(query), "params": params, "result": result}
+
+
+def _check(db: dbm.DB, t: str, claim: dict, today: bool, asof: str | None) -> dict:
+    kind = claim.get("kind") or "free"
+    snap = ep.checkout(db, t, asof, "known" if asof else "true")
+    g = snap["graph"]
+    subject = claim.get("subject") or ""
+    objects = [o for o in claim.get("objects") or [] if o]
+    exhaustive = bool(claim.get("exhaustive"))
+    measure, value = claim.get("measure"), claim.get("value")
+
+    def names(uids):
+        return _names(db, g, uids)
+
+    if kind == "breaks":
+        from orion.universe import broken_in
+
+        u = _universe(db, t, subject, need_graph=not (asof or today))
+        if asof:
+            return _breaks_on(db, t, u, objects, exhaustive, asof)
+        if today and u.get("base_version") != dbm.version(db, t):
+            return _breaks_on(db, t, u, objects, exhaustive)
+        ug = u["graph"]
+        customers = _customers_of(db, ug, objects)
+        if customers is not None:
+            return _customers_verdict(u, customers, exhaustive, ug)
+        if not db.exists(ug):
+            return _breaks_on(db, t, u, objects, exhaustive)
+        reach = broken_in(db, ug)
+        claimed = {_uid(db, ug, "Service", o) for o in objects}
+        verdict, why = _set_verdict(claimed, set(reach), exhaustive, lambda x: _names(db, ug, x))
+        return {"verdict": verdict, "reason": why,
+                "check": receipt(ug, "broken_detail", {"edges": sorted({e for r in reach.values() for e in r.edges})},
+                                 {"broken": _names(db, ug, set(reach))},
+                                 "breadth-first over DEPENDS_ON from every :Retired service; each witness path re-runs as:\n"
+                                 + cypher("broken_detail"))}
+
+    if kind in ("knows", "owns"):
+        s = _uid(db, g, "Service", subject)
+        if kind == "knows":
+            row = db.ro(g, cypher("knowers"), {"s": s})[0]
+            actual = set(row["uids"])
+            claimed = {_uid(db, g, "Person", o) for o in objects}
+            query, result = "knowers", {"knowers": row["knowers"], "people": sorted(row["people"])}
+        else:
+            row = db.ro(g, cypher("owners"), {"s": s})[0]
+            actual = {x for x in row["declared"] + row["de_facto"] if x}
+            claimed = {_uid(db, g, "Team", o) for o in objects}
+            query, result = "owners", {"declared": names([x for x in row["declared"] if x]),
+                                       "de_facto": names([x for x in row["de_facto"] if x])}
+        verdict, why = _set_verdict(claimed, actual, exhaustive, names)
+        return {"verdict": verdict, "reason": why, "check": receipt(g, query, {"s": s}, result)}
+
+    if kind == "depends_on":
+        s = _uid(db, g, "Service", subject)
+        flip = measure == "dependents"
+        reach = impact.walk(db, g, [s], direction="up" if flip else "down")
+        claimed = {_uid(db, g, "Service", o) for o in objects}
+        verdict, why = _set_verdict(claimed, set(reach), exhaustive, names)
+        return {"verdict": verdict, "reason": why,
+                "check": receipt(g, "broken_detail", {"edges": sorted({e for r in reach.values() for e in r.edges})},
+                                 {"dependents" if flip else "dependencies": names(set(reach))},
+                                 f"breadth-first over DEPENDS_ON {'backwards' if flip else 'forwards'} from {subject}, any "
+                                 "depth; every relationship on the paths re-runs as:\n" + cypher("broken_detail"))}
+
+    if kind == "decided":
+        rows = db.ro(g, cypher("decision_status"), {"k": subject})
+        if not rows:
+            raise CheckError(f"no decision {subject}", "unsupported")
+        r = rows[0]
+        rec = receipt(g, "decision_status", {"k": subject}, {"status": r["status"], "affects": r["affects_names"]})
+        if value and str(value).lower() != (r["status"] or "").lower():
+            return {"verdict": "contradicted", "reason": f"{r['key']} is {r['status']}, not {value}", "check": rec}
+        if objects:
+            claimed = set()
+            for o in objects:
+                try:
+                    claimed.add(opsm.resolve(db, g, "Service", o))
+                except opsm.ResolveError:
+                    claimed.add(o)
+            verdict, why = _set_verdict(claimed, set(r["affects"]), exhaustive, names)
+            return {"verdict": verdict, "reason": why, "check": rec}
+        return {"verdict": "verified", "reason": f"{r['key']} is {r['status']}", "check": rec}
+
+    if kind in ("count", "metric"):
+        if asof and measure in ("risk", "broken"):
+            raise CheckError("a what-if's score belongs to the day it was tested, not to a date", "unverified")
+        want = _num(value)
+        if want is None:
+            raise CheckError(f"no number in the claim ({value!r})", "unverified")
+        got, rec = _measure(db, t, g, measure, subject)
+        verdict = "verified" if abs(got - want) < 1e-9 else "contradicted"
+        return {"verdict": verdict, "reason": f"the records say {got:g}" + ("" if verdict == "verified" else f", not {want:g}"),
+                "check": rec}
+
+    raise CheckError(f"unknown claim kind {kind}")
+
+
+def _customers_of(db: dbm.DB, graph: str, objects: list[str]) -> set[str] | None:
+    """When every object of a 'breaks' claim is a customer, the claim is about who would notice."""
+    if not objects:
+        return None
+    out = set()
+    for o in objects:
+        try:
+            out.add(opsm.resolve(db, graph, "Customer", o))
+        except opsm.ResolveError:
+            return None
+    return out
+
+
+def _customers_verdict(u: dict, claimed: set[str], exhaustive: bool, graph: str) -> dict:
+    found = {c["uid"]: c["customer"] for c in json.loads(u.get("diff_json") or "{}").get("customers", [])}
+    verdict, why = _set_verdict(claimed, set(found), exhaustive, lambda x: sorted(found.get(i, i.split(":", 1)[-1]) for i in x))
+    return {"verdict": verdict, "reason": why.replace("records don't show", "list doesn't show").replace("records also show", "list also shows")
+                       .replace("records show", "list shows").replace("the list", "the what-if's customer list"),
+            "check": receipt(graph, "customers_affected", {"universe": u["uid"]}, {"customers": sorted(found.values())})}
+
+
+def _breaks_on(db: dbm.DB, t: str, u: dict, objects: list[str], exhaustive: bool, asof: str | None = None) -> dict:
+    """What the universe's changes break on today's company (or the company on `asof`): replayed on a scratch copy,
+    compared with the claim. This is how an answer about a what-if learns the company moved on."""
+    from orion.universe import broken_in, replay
+
+    when = f"the company on {asof[:10]}" if asof else "today's company"
+    try:
+        r = replay(db, t, json.loads(u["ops_json"]), asof)
+    except opsm.ResolveError as e:
+        raise CheckError(f"{e} on {when}", "unsupported") from None
+    actual = set(r["broken"])
+    g = r["graph"]
+    claimed = set()
+    for o in objects:
+        claimed.add(_any_uid(db, g, o) or _any_uid(db, dbm.org(t), o) or o)
+    verdict, why = _set_verdict(claimed, actual, exhaustive, lambda x: sorted(r["broken"].get(i) or impact.names(db, dbm.org(t), [i]).get(i, i) for i in x))
+    then = set(broken_in(db, u["graph"])) if db.exists(u["graph"]) else set(json.loads(u.get("diff_json") or "{}").get("broken_uids", []))
+    if not then and u.get("diff_json"):
+        then = {b["uid"] for b in json.loads(u["diff_json"])["broken"]}
+    nm = impact.names(db, dbm.org(t), list(actual | then))
+    now_also, gone = sorted(nm.get(x, x) for x in actual - then), sorted(nm.get(x, x) for x in then - actual)
+    moved = "; ".join(x for x in (f"now also breaks {', '.join(now_also)}" if now_also else "",
+                                  f"no longer breaks {', '.join(gone)}" if gone else "") if x)
+    return {"verdict": verdict, "reason": why + (f" (on {when}: {moved})" if moved else f" (re-run on {when})"),
+            "check": {"graph": g, "query": "breaks_today", "params": {"universe": u["uid"]},
+                      "cypher": f"the changes of {u['uid']} replayed on a copy of {when}, then breadth-first over "
+                                "DEPENDS_ON from every :Retired service",
+                      "result": {"broken": sorted(nm.get(x, x) for x in actual), "now_also": now_also, "no_longer": gone}}}
+
+
+def _measure(db: dbm.DB, t: str, g: str, measure: str | None, subject: str) -> tuple[float, dict]:
+    from orion.universe import broken_in, deck
+
+    if measure == "risk":
+        u = _universe(db, t, subject, need_graph=False)
+        row = db.ro(deck(db, t), cypher("universe_risk"), {"u": u["uid"]})[0]
+        return float(row["risk_score"]), receipt(dbm.deck(t), "universe_risk", {"u": u["uid"]},
+                                                 {"risk_score": row["risk_score"], "terms": row["terms"]})
+    if measure == "broken":
+        u = _universe(db, t, subject)
+        reach = broken_in(db, u["graph"])
+        n = len(reach)
+        return float(n), receipt(u["graph"], "broken", {}, {"broken": n, "services": sorted(r.name for r in reach.values())},
+                                 "breadth-first over DEPENDS_ON from every :Retired service")
+    s = _uid(db, g, "Service", subject)
+    if measure == "bus_factor":
+        rows = db.ro(g, cypher("bus_factor"), {"s": s})[0]["per_service"]
+        bf = min((x["knowers"] for x in rows if x["knowers"] > 0), default=0)
+        return float(bf), receipt(g, "bus_factor", {"s": s}, {"bus_factor": bf, "per_service": rows[:10]})
+    if measure == "knowers":
+        row = db.ro(g, cypher("knowers"), {"s": s})[0]
+        return float(row["knowers"]), receipt(g, "knowers", {"s": s}, {"knowers": row["knowers"], "people": row["people"]})
+    if measure == "owners":
+        row = db.ro(g, cypher("owners"), {"s": s})[0]
+        return float(row["owners"]), receipt(g, "owners", {"s": s}, {"owners": row["owners"], "names": row["names"]})
+    if measure == "tier":
+        row = db.ro(g, cypher("service_tier"), {"s": s})[0]
+        return float(row["tier"]), receipt(g, "service_tier", {"s": s}, row)
+    if measure in ("dependents", "dependencies"):
+        reach = impact.walk(db, g, [s], direction="up" if measure == "dependents" else "down")
+        return float(len(reach)), receipt(g, measure, {"s": s}, {measure: len(reach), "services": _names(db, g, set(reach))},
+                                          f"breadth-first over DEPENDS_ON ({measure}), any depth")
+    raise CheckError(f"unknown measure {measure!r}", "unverified")

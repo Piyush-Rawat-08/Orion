@@ -1,146 +1,249 @@
 """Per-person memory, one graph each (mem:<tenant>:<person>), so nobody can read anyone else's.
 
-    episodic    (:User)-[:HAD]->(:Session)-[:TURN]->(:Turn {role, text, at})-[:ABOUT]->(:Ref {uid})
-                Recall for a new question: the current session's last turns, plus earlier exchanges that touched
-                the same company entities, ranked by how many they share and then by how recent they are.
-    semantic    (:User)-[:BELIEVES]->(:Belief {text, valid_from, valid_to})   "remember that ..." statements;
-                stating something new about the same subject closes the old belief, which stays as history.
-    procedural  (:Procedure {qtype, tools, successes, failures}): tool sequences that produced checked answers,
-                per kind of question; the Navigator is told which one worked best before.
-
-Shared memory between people and agents is the org graph itself: findings from every simulation hang off the
-entities they are about (universe.py), and every agent reads them.
+    episodic    (:User)-[:HAD]->(:Session)-[:TURN]->(:Turn {role, text, at, ts, answer_uid})-[:ABOUT]->(:Ref {uid})
+                Recall for a new question: the session's last turns, plus earlier exchanges about the same entities.
+    semantic    (:User)-[:BELIEVES]->(:Belief {key, text, valid_from, valid_to, confirmed_at})-[:LEARNED_FROM]->(:Turn)
+                A new text for a key closes the old belief and supersedes it: every version stays. Confidence halves
+                every 120 days until it is stated again. Sessions older than 14 days become one summary belief.
+    procedural  (:Procedure {name, qtype, tools, successes, failures})-[:STEP]->(:Step {tool, i}): tool sequences that
+                produced checked answers, per kind of question. The best one is pre-run before the next answer.
+    preferences (:User)-[:PREFERS]->(:Preference {key, value})
 """
 
 from __future__ import annotations
 
-import json
 import re
+import secrets
+import time
+from datetime import datetime, timedelta
 
 from orion import db as dbm
-from orion.aliases import Resolver
+
+BELIEF_HALF_LIFE_DAYS = 120
+CONSOLIDATE_AFTER_DAYS = 14
+RECENT_TURNS = 6
+RELEVANT_TURNS = 4
+
+
+def _g(t: str, user: str) -> str:
+    return dbm.mem(t, user)
+
+
+def ensure_user(db: dbm.DB, t: str, user: str) -> str:
+    g = _g(t, user)
+    if not db.exists(g):
+        db.q(g, "CREATE INDEX FOR (r:Ref) ON (r.uid)")
+        db.q(g, "CREATE INDEX FOR (s:Session) ON (s.uid)")
+        db.q(g, "CREATE INDEX FOR (x:Turn) ON (x.uid)")
+    db.q(g, "MERGE (:User {uid: $u})", {"u": user})
+    return g
+
+
+def start_session(db: dbm.DB, t: str, user: str, at: str) -> str:
+    g = ensure_user(db, t, user)
+    uid = f"session:{secrets.token_hex(5)}"
+    db.q(g, "MATCH (u:User {uid: $u}) CREATE (u)-[:HAD]->(:Session {uid: $s, started_at: $at})", {"u": user, "s": uid, "at": at})
+    consolidate(db, t, user, at)
+    return uid
+
+
+def add_turn(db: dbm.DB, t: str, user: str, session: str | None, role: str, text: str, at: str,
+             answer_uid: str | None = None, entities: list[dict] | None = None) -> str:
+    g = ensure_user(db, t, user)
+    session = session or start_session(db, t, user, at)
+    uid = f"turn:{secrets.token_hex(6)}"
+    db.q(g, """MATCH (u:User {uid: $u}) MERGE (s:Session {uid: $s}) ON CREATE SET s.started_at = $at
+               MERGE (u)-[:HAD]->(s)
+               CREATE (s)-[:TURN]->(:Turn {uid: $uid, role: $role, text: $text, at: $at, ts: $ts, answer_uid: $a})""",
+         {"u": user, "s": session, "at": at, "uid": uid, "role": role, "text": text[:4000], "ts": time.time(),
+          "a": answer_uid})
+    refs = [e for e in entities or [] if e.get("uid")]
+    if refs:
+        db.q(g, """MATCH (x:Turn {uid: $t}) UNWIND $refs AS r MERGE (ref:Ref {uid: r.uid}) ON CREATE SET ref.name = r.name
+                   MERGE (x)-[:ABOUT]->(ref)""", {"t": uid, "refs": [{"uid": e["uid"], "name": e.get("name")} for e in refs]})
+    return uid
+
+
+def _days(a: str, b: str) -> float:
+    try:
+        return max(0.0, (datetime.fromisoformat(b[:16]) - datetime.fromisoformat(a[:16])).total_seconds() / 86400)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def remember(db: dbm.DB, t: str, user: str, key: str, text: str, at: str, kind: str = "belief",
+             learned_from: str | None = None) -> dict:
+    """Store a belief (or a preference). The same text confirms it; a different one supersedes it."""
+    g = ensure_user(db, t, user)
+    if kind == "preference":
+        db.q(g, "MATCH (u:User {uid: $u}) MERGE (u)-[:PREFERS]->(p:Preference {key: $k}) SET p.value = $v, p.at = $at",
+             {"u": user, "k": key, "v": text, "at": at})
+        return {"key": key, "status": "preference"}
+    cur = db.ro(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief {key: $k}) WHERE b.valid_to IS NULL
+                      RETURN b.uid AS uid, b.text AS text""", {"u": user, "k": key})
+    if cur and cur[0]["text"].strip().lower() == text.strip().lower():
+        db.q(g, "MATCH (b:Belief {uid: $b}) SET b.confirmed_at = $at", {"b": cur[0]["uid"], "at": at})
+        return {"key": key, "status": "confirmed", "uid": cur[0]["uid"]}
+    if learned_from is None:
+        last = db.ro(g, """MATCH (:User {uid: $u})-[:HAD]->(:Session)-[:TURN]->(x:Turn {role: 'user'})
+                           RETURN x.uid AS uid ORDER BY x.ts DESC LIMIT 1""", {"u": user})
+        learned_from = last[0]["uid"] if last else None
+    uid = f"belief:{secrets.token_hex(5)}"
+    db.q(g, """MATCH (u:User {uid: $u})
+               CREATE (u)-[:BELIEVES]->(b:Belief {uid: $b, key: $k, text: $v, valid_from: $at, confirmed_at: $at,
+                                                  contradicts_previous: $c})
+               WITH b OPTIONAL MATCH (x:Turn {uid: $t})
+               FOREACH (_ IN CASE WHEN x IS NULL THEN [] ELSE [1] END | CREATE (b)-[:LEARNED_FROM]->(x))""",
+         {"u": user, "b": uid, "k": key, "v": text, "at": at, "t": learned_from, "c": bool(cur)})
+    if cur:
+        db.q(g, """MATCH (old:Belief {uid: $o}), (new:Belief {uid: $n}) SET old.valid_to = $at CREATE (new)-[:SUPERSEDES]->(old)""",
+             {"o": cur[0]["uid"], "n": uid, "at": at})
+    return {"key": key, "status": "changed" if cur else "new", "uid": uid, "previous": cur[0]["text"] if cur else None}
+
+
+def beliefs(db: dbm.DB, t: str, user: str, now: str | None = None) -> list[dict]:
+    g = _g(t, user)
+    if not db.exists(g):
+        return []
+    rows = db.ro(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief) WHERE b.valid_to IS NULL
+                       RETURN b.key AS key, b.text AS text, b.confirmed_at AS confirmed_at, b.valid_from AS since""",
+                 {"u": user})
+    for r in rows:
+        age = _days(r["confirmed_at"] or r["since"], now) if now else 0.0
+        r["confidence"] = round(0.5 ** (age / BELIEF_HALF_LIFE_DAYS), 2)
+    return sorted(rows, key=lambda r: -r["confidence"])
+
+
+def belief_history(db: dbm.DB, t: str, user: str) -> list[dict]:
+    g = _g(t, user)
+    if not db.exists(g):
+        return []
+    return db.ro(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief)
+                       OPTIONAL MATCH (b)-[:LEARNED_FROM]->(x:Turn)
+                       OPTIONAL MATCH (b)-[:SUPERSEDES]->(prev:Belief)
+                       RETURN b.key AS key, b.text AS text, b.valid_from AS valid_from, b.valid_to AS valid_to,
+                              b.contradicts_previous AS changed, prev.text AS replaced, x.text AS learned_from,
+                              x.at AS learned_at
+                       ORDER BY key, valid_from, coalesce(valid_to, '9999')""", {"u": user})
+
+
+def _shift(at: str, days: int) -> str:
+    try:
+        return (datetime.fromisoformat(at[:16]) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M")
+    except ValueError:
+        return at
+
+
+def consolidate(db: dbm.DB, t: str, user: str, now: str, older_than_days: int = CONSOLIDATE_AFTER_DAYS) -> int:
+    """Sessions older than two weeks become one summary belief each, so recall keeps the gist."""
+    g = _g(t, user)
+    if not db.exists(g):
+        return 0
+    old = db.ro(g, """MATCH (:User {uid: $u})-[:HAD]->(s:Session) WHERE s.consolidated IS NULL AND s.started_at < $cut
+                      OPTIONAL MATCH (s)-[:TURN]->(x:Turn) OPTIONAL MATCH (x)-[:ABOUT]->(r:Ref)
+                      WITH s, collect(DISTINCT r.name) AS about, collect(x) AS turns
+                      RETURN s.uid AS uid, s.started_at AS at, about,
+                             [x IN turns WHERE x.role = 'user' | x.text] AS asked,
+                             [x IN turns WHERE x.role = 'assistant' | x.text] AS said""",
+                {"u": user, "cut": _shift(now, -older_than_days)})
+    for s in old:
+        if s["asked"]:
+            text = (f"On {s['at'][:10]} you asked {len(s['asked'])} question(s)"
+                    + (f" about {', '.join(sorted(n for n in s['about'] if n)[:5])}" if s["about"] else "")
+                    + (f"; the last answer: {s['said'][-1][:200]}" if s["said"] else ""))
+            remember(db, t, user, f"session:{s['at'][:10]}:{s['uid']}", text, now)
+        db.q(g, "MATCH (s:Session {uid: $s}) SET s.consolidated = true", {"s": s["uid"]})
+    return len(old)
+
 
 QTYPES = [
-    ("what_if", r"\b(what if|what breaks|what happens|retire|deprecate|decommission|goes down|outage|leaves?|merge|move)\b"),
-    ("who_knows", r"\b(who knows|who owns|expert|bus factor|knowledge|who can|who should)\b"),
-    ("why", r"\b(why|decid|decision|adr|reverse|supersede)\b"),
-    ("customer", r"\b(customer|waiting|blocked|ticket|escalat)\b"),
-    ("history", r"\b(when|used to|back in|as of|history|before|was)\b"),
+    ("whatif", r"\bwhat if\b|\bwhat happens\b|\bif we\b|\bwould break\b|\bdeprecat|\bleaves?\b|\bretire|\bswitch(ed)? off\b"),
+    ("act", r"\b(create|open|file|reassign|move|assign|remove|add)\b.*\b(ticket|owner|dependency|team)\b"),
+    ("decision", r"\bwhy\b|\bdecid|\bdecision\b|\badr-?\d+|\breversed?\b|\bsupersed"),
+    ("people", r"\bwho\b|\bknows?\b|\bowns?\b|\bon[- ]call\b|\bbus factor\b|\bexpert"),
+    ("customer", r"\bcustomer\b|\bclient\b|\bescalat|\bwaiting\b"),
+    ("history", r"\bas of\b|\bin (january|february|march|april|may|june|july|august|september|october)\b|\blast "
+                r"(week|month|quarter)\b|\bback in\b|\bused to\b"),
 ]
 
 
-def qtype(question: str) -> str:
-    q = question.lower()
-    for name, pat in QTYPES:
-        if re.search(pat, q):
+def question_type(text: str) -> str:
+    low = (text or "").lower()
+    for name, rx in QTYPES:
+        if re.search(rx, low):
             return name
     return "general"
 
 
-def _g(db: dbm.DB, t: str, user: str) -> str:
-    g = dbm.mem(t, user)
-    if not db.exists(g):
-        db.q(g, "CREATE INDEX FOR (r:Ref) ON (r.uid)")
-        db.q(g, "CREATE INDEX FOR (s:Session) ON (s.uid)")
-        db.q(g, "MERGE (:User {uid: $u})", {"u": user})
-    return g
-
-
-def remember(db: dbm.DB, t: str, user: str, session: str | None, question: str, answer: str, answer_uid: str,
-             touched: list[str]) -> None:
-    g = _g(db, t, user)
-    at = dbm.clock(db, t)
-    session = session or "default"
-    refs = sorted({u for u in touched if u.split(":")[0] in ("svc", "person", "team", "cust", "dec", "proj", "tkt")})
-    db.q(g, """MATCH (u:User {uid: $user}) MERGE (s:Session {uid: $s}) ON CREATE SET s.started = $at
-               MERGE (u)-[:HAD]->(s) SET s.last = $at
-               CREATE (s)-[:TURN]->(q:Turn {role: 'user', text: $q, at: $at}),
-                      (s)-[:TURN]->(a:Turn {role: 'assistant', text: $a, at: $at, answer: $ans}), (q)-[:ANSWERED_BY]->(a)
-               WITH q UNWIND $refs AS r MERGE (x:Ref {uid: r}) CREATE (q)-[:ABOUT]->(x)""",
-         {"user": user, "s": session, "at": at, "q": question, "a": answer[:2000], "ans": answer_uid, "refs": refs})
-    m = re.match(r"\s*(?:please\s+)?remember(?: that)?\s+(.+)", question, re.I)
-    if m:
-        believe(db, t, user, m.group(1).strip(), refs)
-
-
-def believe(db: dbm.DB, t: str, user: str, text: str, about: list[str]) -> None:
-    """A new belief about the same subjects closes the previous one (bi-temporal: both stay)."""
-    g = _g(db, t, user)
-    at = dbm.clock(db, t)
-    if about:
-        db.q(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief)-[:ABOUT]->(r:Ref) WHERE r.uid IN $about
-                   AND b.valid_to = '9999-12-31' SET b.valid_to = $at""", {"u": user, "about": about, "at": at})
-    db.q(g, """MATCH (u:User {uid: $u}) CREATE (u)-[:BELIEVES]->(b:Belief {text: $text, valid_from: $at,
-                                                                        valid_to: '9999-12-31'})
-               WITH b UNWIND $about AS r MERGE (x:Ref {uid: r}) CREATE (b)-[:ABOUT]->(x)""",
-         {"u": user, "text": text, "at": at, "about": about})
-
-
-def learn_procedure(db: dbm.DB, t: str, user: str, question: str, tools_used: list[str], ok: bool) -> None:
-    if not tools_used:
+def learn_procedure(db: dbm.DB, t: str, user: str, tools: list[str], success: bool, qtype: str = "general") -> None:
+    steps = [x for i, x in enumerate(tools) if i == 0 or tools[i - 1] != x][:8]
+    if len(steps) < 2:
         return
-    g = _g(db, t, user)
-    seq = json.dumps(list(dict.fromkeys(tools_used)))
-    db.q(g, """MERGE (p:Procedure {qtype: $qt, tools: $seq})
-               ON CREATE SET p.successes = 0, p.failures = 0
-               SET p.successes = p.successes + $s, p.failures = p.failures + $f""",
-         {"qt": qtype(question), "seq": seq, "s": 1 if ok else 0, "f": 0 if ok else 1})
+    g = ensure_user(db, t, user)
+    name = f"{qtype}: " + " → ".join(steps)
+    field = "successes" if success else "failures"
+    stamp = secrets.token_hex(8)
+    db.q(g, f"""MERGE (p:Procedure {{name: $n}})
+                ON CREATE SET p.successes = 0, p.failures = 0, p.tools = $tools, p.qtype = $qt, p.created = $c
+                SET p.{field} = p.{field} + 1
+                WITH p WHERE p.created = $c
+                UNWIND range(0, size($tools) - 1) AS i
+                CREATE (p)-[:STEP {{i: i}}]->(:Step {{tool: $tools[i], i: i}})""",
+         {"n": name, "tools": steps, "qt": qtype, "c": stamp})
 
 
-def recall(db: dbm.DB, t: str, user: str, question: str, session: str | None) -> dict:
-    g = _g(db, t, user)
-    from orion import ops as opsm
-
-    res: Resolver = opsm.resolver(db, dbm.org(t))
-    refs = res.mentions(question)
-    items: list[dict] = []
-    recent = db.ro(g, """MATCH (:Session {uid: $s})-[:TURN]->(x:Turn) RETURN x.role AS role, x.text AS text, x.at AS at
-                         ORDER BY x.at DESC LIMIT 4""", {"s": session or "default"})
-    for r in reversed(recent):
-        items.append({"kind": "recent", "role": r["role"], "text": r["text"][:400], "at": r["at"]})
-    if refs:
-        past = db.ro(g, """MATCH (q:Turn {role: 'user'})-[:ABOUT]->(r:Ref) WHERE r.uid IN $refs
-                           MATCH (q)-[:ANSWERED_BY]->(a:Turn) MATCH (s:Session)-[:TURN]->(q)
-                           WHERE s.uid <> $s
-                           RETURN q.text AS q, a.text AS a, q.at AS at, count(r) AS shared
-                           ORDER BY shared DESC, at DESC LIMIT 3""", {"refs": refs, "s": session or "default"})
-        for p in past:
-            items.append({"kind": "earlier", "text": f"Q: {p['q']}\nA: {p['a'][:400]}", "at": p["at"]})
-        found = db.ro(dbm.org(t), """MATCH (f:Finding)-[:ABOUT]->(n) WHERE n.uid IN $refs
-                                     RETURN DISTINCT f.universe AS universe, f.title AS title, f.summary AS summary,
-                                            f.at AS at ORDER BY at DESC LIMIT 3""", {"refs": refs})
-        for f in found:
-            items.append({"kind": "finding", "text": f"Simulated before (universe {f['universe']}, {f['at']}): "
-                                                     f"{f['title']}: {f['summary']}", "at": f["at"],
-                          "universe": f["universe"]})
-    beliefs = db.ro(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief) WHERE b.valid_to = '9999-12-31'
-                          RETURN b.text AS text, b.valid_from AS at ORDER BY at DESC LIMIT 5""", {"u": user})
-    for b in beliefs:
-        items.append({"kind": "belief", "text": b["text"], "at": b["at"]})
-    proc = db.ro(g, """MATCH (p:Procedure {qtype: $qt}) WHERE p.successes > 0
-                       RETURN p.tools AS tools, p.successes AS ok, p.failures AS bad
-                       ORDER BY toFloat(p.successes) / (p.successes + p.failures) DESC, p.successes DESC LIMIT 1""",
-                 {"qt": qtype(question)})
-    if proc:
-        items.append({"kind": "procedure", "text": "Questions like this were answered with checked claims using: "
-                                                   + " -> ".join(json.loads(proc[0]["tools"]))})
-    if not items:
-        return {"items": [], "text": ""}
-    lines = ["What you remember (use it, but check anything that may have changed):"]
-    for it in items:
-        lines.append(f"- [{it['kind']}] {it['text']}")
-    return {"items": items, "text": "\n".join(lines)}
+def playbook(db: dbm.DB, t: str, user: str, qtype: str) -> dict | None:
+    g = _g(t, user)
+    if not db.exists(g):
+        return None
+    rows = db.ro(g, """MATCH (p:Procedure {qtype: $q}) WHERE p.successes >= 2 AND p.successes > p.failures
+                       RETURN p.name AS name, p.tools AS tools, p.successes AS successes ORDER BY p.successes DESC LIMIT 1""",
+                 {"q": qtype})
+    return rows[0] if rows else None
 
 
-def timeline(db: dbm.DB, t: str, user: str) -> dict:
-    g = _g(db, t, user)
-    sessions = db.ro(g, """MATCH (:User {uid: $u})-[:HAD]->(s:Session) OPTIONAL MATCH (s)-[:TURN]->(x:Turn {role: 'user'})
-                           RETURN s.uid AS uid, s.started AS started, s.last AS last, count(x) AS questions,
-                                  collect(x.text)[0..3] AS sample ORDER BY last DESC LIMIT 20""", {"u": user})
-    beliefs = db.ro(g, """MATCH (:User {uid: $u})-[:BELIEVES]->(b:Belief) RETURN b.text AS text, b.valid_from AS valid_from,
-                          b.valid_to AS valid_to ORDER BY valid_from DESC""", {"u": user})
-    procs = db.ro(g, """MATCH (p:Procedure) RETURN p.qtype AS qtype, p.tools AS tools, p.successes AS ok,
-                        p.failures AS bad ORDER BY ok DESC""")
-    refs = db.ro(g, """MATCH (q:Turn)-[:ABOUT]->(r:Ref) RETURN r.uid AS uid, count(q) AS n ORDER BY n DESC LIMIT 12""")
-    return {"sessions": sessions, "beliefs": beliefs, "procedures": [p | {"tools": json.loads(p["tools"])} for p in procs],
-            "topics": refs}
+def recall(db: dbm.DB, t: str, user: str, limit: int = RELEVANT_TURNS, question: str | None = None,
+           session: str | None = None, now: str | None = None) -> dict:
+    g = _g(t, user)
+    empty = {"recent_turns": [], "relevant_turns": [], "beliefs": [], "preferences": {}, "playbooks": []}
+    if not db.exists(g):
+        return empty
+    if session:
+        recent = db.ro(g, """MATCH (:Session {uid: $s})-[:TURN]->(x:Turn) RETURN x.uid AS uid, x.role AS role, x.text AS text,
+                             x.at AS at ORDER BY x.ts DESC LIMIT $n""", {"s": session, "n": RECENT_TURNS})
+    elif not question:
+        recent = db.ro(g, """MATCH (:User {uid: $u})-[:HAD]->(:Session)-[:TURN]->(x:Turn) RETURN x.uid AS uid,
+                             x.role AS role, x.text AS text, x.at AS at ORDER BY x.ts DESC LIMIT $n""", {"u": user, "n": limit})
+    else:
+        recent = []
+    relevant: list[dict] = []
+    if question:
+        from orion.claims import mentioned
+
+        ents = [e["uid"] for e in mentioned(db, t, question)]
+        if ents:
+            relevant = db.ro(g, """MATCH (q:Turn {role: 'user'})-[:ABOUT]->(r:Ref) WHERE r.uid IN $e
+                                   MATCH (s:Session)-[:TURN]->(q) WHERE $sess IS NULL OR s.uid <> $sess
+                                   OPTIONAL MATCH (s)-[:TURN]->(a:Turn {role: 'assistant'}) WHERE a.ts > q.ts
+                                   WITH q, count(DISTINCT r) AS shared, collect(a)[0] AS a, collect(DISTINCT r.name) AS names
+                                   RETURN q.uid AS uid, q.text AS text, q.at AS at, a.text AS answer,
+                                          'about ' + reduce(x = '', n IN names | x + CASE WHEN x = '' THEN '' ELSE ', ' END + n) AS why
+                                   ORDER BY shared DESC, at DESC LIMIT $n""",
+                               {"e": ents, "sess": session, "n": limit})
+    prefs = {r["k"]: r["v"] for r in db.ro(g, "MATCH (:User {uid: $u})-[:PREFERS]->(p) RETURN p.key AS k, p.value AS v",
+                                           {"u": user})}
+    qtype = question_type(question) if question else None
+    procs = db.ro(g, """MATCH (p:Procedure) WHERE p.successes > p.failures AND ($q IS NULL OR p.qtype = $q)
+                        RETURN p.name AS playbook, p.successes AS successes, p.qtype AS qtype
+                        ORDER BY p.successes DESC LIMIT 5""", {"q": qtype})
+    return {"recent_turns": list(reversed(recent)), "relevant_turns": relevant, "beliefs": beliefs(db, t, user, now),
+            "preferences": prefs, "playbooks": procs}
+
+
+def history(db: dbm.DB, t: str, user: str, limit: int = 50) -> list[dict]:
+    g = _g(t, user)
+    if not db.exists(g):
+        return []
+    return db.ro(g, """MATCH (:User {uid: $u})-[:HAD]->(s:Session)-[:TURN]->(x:Turn)
+                       RETURN s.uid AS session, x.role AS role, x.text AS text, x.at AS at, x.answer_uid AS answer_uid
+                       ORDER BY x.ts DESC LIMIT $n""", {"u": user, "n": limit})

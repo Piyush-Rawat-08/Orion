@@ -1,0 +1,271 @@
+"""The blackboard: every agent works through tasks in the deck graph, so the work is shared and visible.
+
+    (:Agent {name, role, pid, status, heartbeat_at, kinds})        in the shared pool graph (orion:pool)
+    (:Task {uid, kind, status: open|claimed|done|failed|dead, payload, claimed_by, created_at, claimed_at, done_at,
+            posted_by, attempts, root})-[:FOLLOWS]->(:Task)        in deck:<tenant>
+    (:Task)-[:PRODUCED]->(:Finding {summary, result})
+
+A task is claimed with one write query; FalkorDB runs writes to a graph one at a time, so two workers never take the
+same task. A task is tried at most three times, then it is dead rather than looping. Workers are threads in the API
+process (Simulator 1 and 2, the Cartographer, the Sentinel), each with a heartbeat; a task whose worker goes silent is
+released.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import threading
+import time
+from typing import Callable
+
+from orion import db as dbm
+from orion.queries import cypher
+
+POOL = "orion:pool"
+MAX_ATTEMPTS = 3
+HEARTBEAT_S = 5
+DEAD_AFTER_S = 30
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _deck(db: dbm.DB, t: str) -> str:
+    from orion.universe import deck
+
+    g = deck(db, t)
+    if not db.exists(g) or not db.redis.sismember("orion:deck-indexed", g):
+        db.q(g, "CREATE INDEX FOR (x:Task) ON (x.uid)")
+        db.q(g, "CREATE INDEX FOR (x:Task) ON (x.status)")
+        db.redis.sadd("orion:deck-indexed", g)
+    return g
+
+
+def register(db: dbm.DB, name: str, role: str, kinds: list[str]) -> None:
+    with dbm.tagged("board"):
+        db.q(POOL, """MERGE (a:Agent {name: $n}) SET a.role = $r, a.pid = $pid, a.status = 'idle', a.heartbeat_at = $t,
+                      a.kinds = $k""", {"n": name, "r": role, "pid": os.getpid(), "t": now_ms(), "k": kinds})
+
+
+def heartbeat(db: dbm.DB, name: str, status: str | None = None) -> None:
+    with dbm.tagged("board"):
+        db.q(POOL, "MATCH (a:Agent {name: $n}) SET a.heartbeat_at = $t" + (", a.status = $s" if status else ""),
+             {"n": name, "t": now_ms(), "s": status})
+
+
+def post(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", follows: str | None = None) -> str:
+    g = _deck(db, t)
+    uid = f"task:{secrets.token_hex(5)}"
+    root = None
+    if follows:
+        row = db.one(g, "MATCH (x:Task {uid: $u}) RETURN coalesce(x.root, x.uid) AS r", {"u": follows})
+        root = row["r"] if row else None
+    with dbm.tagged("board"):
+        db.q(g, """CREATE (x:Task {uid: $u, kind: $k, status: 'open', payload: $p, created_at: $at, posted_by: $by,
+                                  attempts: 0, root: $root})""",
+             {"u": uid, "k": kind, "p": json.dumps(payload, default=str), "at": now_ms(), "by": posted_by, "root": root})
+        if follows:
+            db.q(g, "MATCH (a:Task {uid: $a}), (b:Task {uid: $b}) CREATE (a)-[:FOLLOWS]->(b)", {"a": uid, "b": follows})
+    return uid
+
+
+def claim(db: dbm.DB, t: str, agent: str, kinds: list[str], uid: str | None = None) -> dict | None:
+    g = _deck(db, t)
+    with dbm.tagged("board"):
+        if uid:
+            rows = db.q(g, """MATCH (x:Task {uid: $u}) WHERE x.status = 'open'
+                              SET x.status = 'claimed', x.claimed_by = $a, x.claimed_at = $now, x.attempts = x.attempts + 1
+                              RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload""",
+                        {"u": uid, "a": agent, "now": now_ms()})
+        else:
+            rows = db.q(g, cypher("claim_task"), {"kinds": kinds, "agent": agent, "now": now_ms(), "max": MAX_ATTEMPTS})
+    if not rows:
+        return None
+    r = rows[0]
+    return r | {"payload": json.loads(r["payload"])}
+
+
+def complete(db: dbm.DB, t: str, uid: str, result: dict, summary: str, ok: bool = True) -> None:
+    g = _deck(db, t)
+    with dbm.tagged("board"):
+        db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = $s, x.done_at = $now, x.result = $r
+                   CREATE (x)-[:PRODUCED]->(:Finding {summary: $sum})""",
+             {"u": uid, "s": "done" if ok else "failed", "now": now_ms(), "r": json.dumps(result, default=str)[:20000],
+              "sum": summary})
+
+
+def fail(db: dbm.DB, t: str, uid: str, error: str) -> None:
+    g = _deck(db, t)
+    with dbm.tagged("board"):
+        db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END,
+                   x.error = $e""", {"u": uid, "e": error[:500], "max": MAX_ATTEMPTS})
+
+
+# ---------------------------------------------------------------- execution
+
+EXECUTORS: dict[str, Callable] = {}
+
+
+def executor(kind: str):
+    def deco(fn):
+        EXECUTORS[kind] = fn
+        return fn
+    return deco
+
+
+@executor("fork")
+def _fork(db: dbm.DB, t: str, task: str, payload: dict, agent: str) -> tuple[dict, str]:
+    from orion import universe as uv
+
+    res = uv.fork(db, t, payload["ops"], kind=payload.get("kind", "whatif"), title=payload.get("title"),
+                  created_by=payload.get("created_by", agent), uid=payload.get("universe_uid"), task=task)
+    return res, f"{res['uid']}: {res['title']} → risk {res['diff']['risk']['level']} {res['diff']['risk']['score']}"
+
+
+@executor("simulate")
+def _simulate(db: dbm.DB, t: str, task: str, payload: dict, agent: str) -> tuple[dict, str]:
+    from orion.agents.simulator import simulate
+
+    res = simulate(db, t, payload["scenario"], payload.get("created_by"), uid=payload.get("universe_uid"), task=task)
+    return res, f"{res['uid']}: {res['title']} → risk {res['diff']['risk']['level']} {res['diff']['risk']['score']}"
+
+
+def run_task(db: dbm.DB, t: str, task: dict, agent: str) -> dict:
+    with dbm.tagged(f"task:{task['uid']}"):
+        try:
+            res, summary = EXECUTORS[task["kind"]](db, t, task["uid"], task["payload"], agent)
+        except Exception as e:
+            fail(db, t, task["uid"], f"{type(e).__name__}: {e}")
+            raise
+    complete(db, t, task["uid"], {k: res.get(k) for k in ("uid", "title", "risk", "risk_level")}, summary)
+    return res | {"_worker": agent, "_task": task["uid"]}
+
+
+def live_workers(db: dbm.DB, t: str | None = None, role: str = "simulator") -> int:
+    if not db.exists(POOL):
+        return 0
+    with dbm.tagged("board"):
+        return db.one(POOL, "MATCH (a:Agent {role: $r}) WHERE a.heartbeat_at > $since RETURN count(a) AS n",
+                      {"r": role, "since": now_ms() - DEAD_AFTER_S * 1000})["n"]
+
+
+_results: dict[str, dict] = {}
+_events: dict[str, threading.Event] = {}
+
+
+def run(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", follows: str | None = None,
+        timeout: float = 60.0) -> dict:
+    """Post a task and wait for a worker to finish it. With no live worker, run it here (inline) instead."""
+    payload = dict(payload)
+    if kind in ("fork", "simulate") and "universe_uid" not in payload:
+        from orion.universe import next_uid
+
+        payload["universe_uid"] = next_uid(db, t)  # a retried task rebuilds the same universe
+    uid = post(db, t, kind, payload, posted_by, follows)
+    if live_workers(db, t) == 0:
+        task = claim(db, t, "inline", [kind], uid=uid)
+        return run_task(db, t, task, "inline")
+    ev = threading.Event()
+    _events[uid] = ev
+    try:
+        if not ev.wait(timeout):
+            task = claim(db, t, "inline", [kind], uid=uid)  # nobody picked it up: do it here
+            if task:
+                return run_task(db, t, task, "inline")
+            ev.wait(timeout)
+        res = _results.pop(uid, None)
+        if res is None or "error" in res:
+            raise RuntimeError((res or {}).get("error", "the worker didn't finish the task"))
+        return res
+    finally:
+        _events.pop(uid, None)
+
+
+def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, tenants: Callable[[], list[str]],
+               takes: list[str] | None = None) -> None:
+    """A worker: claim tasks of the kinds it `takes` from every tenant, run them, heartbeat. The Cartographer and
+    the Sentinel take nothing from the open board: their steps are claimed the moment they are posted."""
+    db = dbm.get_db()
+    register(db, name, role, kinds)
+    takes = kinds if takes is None else takes
+    last = 0.0
+    while not stop.is_set():
+        did = False
+        for t in tenants() if takes else []:
+            try:
+                task = claim(db, t, name, takes)
+            except Exception:
+                task = None
+            if not task:
+                continue
+            did = True
+            heartbeat(db, name, "working")
+            try:
+                res = run_task(db, t, task, name)
+                _results[task["uid"]] = res
+            except Exception as e:
+                _results[task["uid"]] = {"error": f"{type(e).__name__}: {e}"}
+            ev = _events.get(task["uid"])
+            if ev:
+                ev.set()
+            heartbeat(db, name, "idle")
+        if time.time() - last > HEARTBEAT_S:
+            heartbeat(db, name, "idle")
+            last = time.time()
+        if not did:
+            stop.wait(0.25)
+
+
+def release_dead(db: dbm.DB, t: str) -> int:
+    """Tasks claimed by a worker that stopped heartbeating go back on the board."""
+    if not db.exists(POOL):
+        return 0
+    with dbm.tagged("board"):
+        dead = [r["n"] for r in db.ro(POOL, "MATCH (a:Agent) WHERE a.heartbeat_at < $since RETURN a.name AS n",
+                                      {"since": now_ms() - DEAD_AFTER_S * 1000})]
+        if not dead:
+            return 0
+        rows = db.q(_deck(db, t), """MATCH (x:Task {status: 'claimed'}) WHERE x.claimed_by IN $d
+                                     SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END
+                                     RETURN count(x) AS n""", {"d": dead, "max": MAX_ATTEMPTS})
+        return rows[0]["n"] if rows else 0
+
+
+def retention(db: dbm.DB, t: str, days: int = 7) -> int:
+    with dbm.tagged("board"):
+        rows = db.q(_deck(db, t), """MATCH (x:Task) WHERE x.status IN ['done', 'dead'] AND x.done_at < $cut
+                                     OPTIONAL MATCH (x)-[:PRODUCED]->(f) DETACH DELETE x, f RETURN count(*) AS n""",
+                    {"cut": now_ms() - days * 86400_000})
+        return rows[0]["n"] if rows else 0
+
+
+def prune_agents(db: dbm.DB) -> None:
+    if db.exists(POOL):
+        with dbm.tagged("board"):
+            db.q(POOL, "MATCH (a:Agent) WHERE a.heartbeat_at < $cut DELETE a", {"cut": now_ms() - 3600_000})
+
+
+def activity(db: dbm.DB, t: str, limit: int = 40) -> dict:
+    agents = db.ro(POOL, """MATCH (a:Agent) RETURN a.name AS name, a.role AS role, a.pid AS pid, a.status AS status,
+                            a.heartbeat_at AS heartbeat_at, a.kinds AS kinds ORDER BY a.name""") if db.exists(POOL) else []
+    g = _deck(db, t)
+    tasks = db.ro(g, """MATCH (x:Task) OPTIONAL MATCH (x)-[:PRODUCED]->(f:Finding) OPTIONAL MATCH (x)-[:FOLLOWS]->(p:Task)
+                        RETURN x.uid AS uid, x.kind AS kind, x.status AS status, x.claimed_by AS worker,
+                               x.created_at AS created_at, x.claimed_at AS claimed_at, x.done_at AS done_at,
+                               x.posted_by AS posted_by, f.summary AS summary, x.attempts AS attempts,
+                               coalesce(x.root, x.uid) AS root, p.uid AS follows
+                        ORDER BY created_at DESC LIMIT $n""", {"n": limit})
+    return {"agents": agents, "tasks": tasks, "now": now_ms()}
+
+
+def chain(db: dbm.DB, t: str, task: str) -> list[dict]:
+    g = _deck(db, t)
+    row = db.one(g, "MATCH (x:Task {uid: $u}) RETURN coalesce(x.root, x.uid) AS r", {"u": task})
+    if not row:
+        return []
+    return db.ro(g, """MATCH (x:Task) WHERE x.root = $r OR x.uid = $r
+                       RETURN x.uid AS uid, x.kind AS kind, x.status AS status, x.claimed_by AS worker,
+                              x.created_at AS created_at ORDER BY created_at""", {"r": row["r"]})

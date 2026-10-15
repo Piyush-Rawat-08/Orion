@@ -85,9 +85,12 @@ def load(db: dbm.DB, w: World) -> dict:
     run("""UNWIND $rows AS r MATCH (t:Team {uid: r.a}), (s:Service {uid: r.b})
            CREATE (t)-[:OWNS {uid: r.uid, valid_from: r.valid_from, valid_to: r.valid_to, recorded_at: r.recorded_at,
                   src: r.source, declared: r.declared}]->(s)""", w.owns)
+    # declared: on the official list (the service catalog, a migration plan) or only found in conversation
+    texts = {m["uid"]: m["text"] for m in w.messages}
     run("""UNWIND $rows AS r MATCH (a:Service {uid: r.a}), (b:Service {uid: r.b})
            CREATE (a)-[:DEPENDS_ON {uid: r.uid, kind: r.kind, valid_from: r.valid_from, valid_to: r.valid_to,
-                  recorded_at: r.recorded_at, src: r.source}]->(b)""", w.deps)
+                  recorded_at: r.recorded_at, src: r.source, declared: r.declared, quote: r.quote}]->(b)""",
+        [d | {"declared": d["source"].startswith("doc:"), "quote": texts.get(d["source"])} for d in w.deps])
     run("""UNWIND $rows AS r MATCH (c:Customer {uid: r.customer}), (s:Service {uid: r.service})
            CREATE (c)-[:USES {uid: r.uid, valid_from: r.valid_from, valid_to: r.valid_to, recorded_at: r.valid_from,
                   src: 'doc:contracts'}]->(s)""", w.uses)
@@ -99,7 +102,7 @@ def load(db: dbm.DB, w: World) -> dict:
 
     # ---------------------------------------------------------------- decisions
     run("""UNWIND $rows AS r CREATE (:Decision {uid: r.uid, key: r.key, title: r.title, status: r.status, at: r.at,
-           summary: r.summary, day: r.day})""", [d | {"day": day_index(d["at"])} for d in w.decisions])
+           decided_at: r.at, summary: r.summary, day: r.day})""", [d | {"day": day_index(d["at"])} for d in w.decisions])
     run("UNWIND $rows AS r MATCH (d:Decision {uid: r.d}), (p:Person {uid: r.p}) CREATE (d)-[:DECIDED_BY]->(p)",
         [{"d": d["uid"], "p": p} for d in w.decisions for p in d["decided_by"]])
     run("UNWIND $rows AS r MATCH (d:Decision {uid: r.d}), (t:Team {uid: r.t}) CREATE (d)-[:MADE_BY]->(t)",
@@ -171,4 +174,4 @@ def reset(db: dbm.DB, tenant: str = "corvane") -> dict:
     stats = load(db, corvane.build())
     built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
     db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")
-    return stats | {"epoch_ms": built["ms"]}
+    return stats | {"epoch_ms": built["total_ms"]}

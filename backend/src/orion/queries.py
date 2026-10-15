@@ -1,0 +1,240 @@
+"""Named Cypher queries. A receipt (evidence) cites a query by name and carries its text, so a reader can see the
+exact Cypher behind every claim, and docs/queries.md is generated from this file and from a recorded run."""
+
+from __future__ import annotations
+
+Q: dict[str, str] = {
+    # ------------------------------------------------------------ knowledge and ownership
+    "knowledge_orphans": """MATCH (s:Service) WHERE NOT ()-[:KNOWS]->(s)
+RETURN s.uid AS uid, s.name AS name, s.tier AS tier""",
+
+    "knowers": """MATCH (s:Service {uid: $s})
+OPTIONAL MATCH (p:Person)-[:KNOWS]->(s)
+RETURN count(p) AS knowers, collect(p.name) AS people, collect(p.uid) AS uids""",
+
+    "owners": """MATCH (s:Service {uid: $s})
+OPTIONAL MATCH (d:Team)-[od:OWNS]->(s) WHERE od.declared = true
+OPTIONAL MATCH (f:Team)-[of:OWNS]->(s) WHERE of.declared = false
+RETURN collect(DISTINCT d.uid) AS declared, collect(DISTINCT f.uid) AS de_facto,
+       size(collect(DISTINCT d.uid)) + size(collect(DISTINCT f.uid)) AS owners,
+       collect(DISTINCT d.name) + collect(DISTINCT f.name) AS names""",
+
+    "who_knows": """MATCH (s:Service) WHERE s.uid = $s
+MATCH (p:Person)-[:AUTHORED|REVIEWED]->(c:Change)-[:MODIFIES]->(s)
+WHERE c.at >= $since
+OPTIONAL MATCH (p)-[:MEMBER_OF]->(t:Team)
+WITH p, t, count(c) AS touches, max(c.at) AS last_at
+RETURN p.uid AS uid, p.name AS name, t.name AS team, touches, last_at, touches >= 3 AS knows
+ORDER BY touches DESC""",
+
+    "ownership": """MATCH (s:Service {uid: $s})
+OPTIONAL MATCH (t:Team)-[o:OWNS]->(s)
+OPTIONAL MATCH (src:Source {uid: o.src})
+RETURN s.uid AS uid, s.name AS name,
+       collect(DISTINCT {team: t.name, team_uid: t.uid, declared: o.declared, fact: o.uid, share: o.share,
+                         changes: o.changes, source_uid: src.uid, source: coalesce(src.title, src.channel)}) AS owners""",
+
+    "service_tier": """MATCH (s:Service {uid: $s}) RETURN s.uid AS uid, s.name AS name, s.tier AS tier""",
+
+    "bus_factor": """MATCH (root:Service {uid: $s})
+OPTIONAL MATCH (root)-[:DEPENDS_ON*1..12]->(dep:Service)
+WITH root, collect(DISTINCT dep) AS deps
+UNWIND [root] + deps AS x
+OPTIONAL MATCH (p:Person)-[:KNOWS]->(x)
+WITH x, collect(p.name) AS people
+RETURN collect({uid: x.uid, service: x.name, knowers: size(people), people: people}) AS per_service""",
+
+    # ------------------------------------------------------------ dependencies
+    "broken_detail": """UNWIND $edges AS e
+MATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)
+RETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,
+       r.declared AS declared""",
+
+    "broken_paths": """MATCH (d:Service)-[r:DEPENDS_ON]->(s:Retired)
+RETURN DISTINCT s.uid AS uid, s.name AS name, s.retired AS retired_at""",
+
+    "undeclared": """MATCH (a:Service)-[r:DEPENDS_ON]->(b:Service)
+WHERE r.declared = false
+OPTIONAL MATCH (src:Source {uid: r.src})
+OPTIONAL MATCH (src)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
+RETURN a.uid AS source_uid, a.name AS source, b.uid AS target_uid, b.name AS target, r.uid AS fact, r.kind AS kind,
+       coalesce(r.quote, src.text) AS quote, r.valid_from AS since,
+       {kind: labels(src)[1], title: coalesce(src.title, src.channel), at: src.at, author: p.name, url: null,
+        text: src.text} AS found_in
+ORDER BY since DESC""",
+
+    "customers_affected": """MATCH (s:Service) WHERE s.uid IN $services
+OPTIONAL MATCH (c1:Customer)-[:USES]->(s)
+OPTIONAL MATCH (c2:Customer)<-[:RAISED_BY]-(k:Ticket)-[:ABOUT]->(s) WHERE k.at >= $since
+WITH s, collect(DISTINCT c1) AS users, collect(DISTINCT {c: c2, key: k.key}) AS raised
+UNWIND users + [x IN raised WHERE x.c IS NOT NULL | x.c] AS c
+WITH s, c, users, [x IN raised WHERE x.c = c | x.key] AS tickets
+RETURN DISTINCT c.uid AS uid, c.name AS customer, c.tier AS tier, s.uid AS service_uid, s.name AS service, tickets,
+       c IN users AS uses""",
+
+    # ------------------------------------------------------------ algorithms
+    "stranded_clusters": """CALL algo.WCC({nodeLabels: ['Service', 'Person', 'Team'],
+                  relationshipTypes: ['DEPENDS_ON', 'KNOWS', 'MEMBER_OF', 'OWNS']})
+YIELD node, componentId
+WITH componentId, collect(node) AS members
+WHERE none(m IN members WHERE m:Team) AND any(m IN members WHERE m:Service)
+RETURN componentId AS cid, [m IN members WHERE m:Service | m.uid] AS uids, [m IN members WHERE m:Service | m.name] AS names""",
+
+    "collab_components": """CALL algo.WCC({nodeLabels: ['Person'], relationshipTypes: ['COLLABORATES']})
+YIELD node, componentId
+WITH componentId, collect(node) AS members WHERE size(members) > 1
+RETURN componentId AS cid, [m IN members | m.uid] AS uids, [m IN members | m.name] AS names""",
+
+    "betweenness": """CALL algo.betweenness({nodeLabels: ['Person'], relationshipTypes: ['COLLABORATES'],
+                         samplingSize: 10000, samplingSeed: 7})
+YIELD node, score
+RETURN node.uid AS uid, node.name AS name, score ORDER BY score DESC, uid""",
+
+    "pagerank": """CALL algo.pageRank('Person', 'COLLABORATES')
+YIELD node, score
+RETURN node.uid AS uid, node.name AS name, score ORDER BY score DESC, uid""",
+
+    "service_pagerank": """CALL algo.pageRank('Service', 'DEPENDS_ON')
+YIELD node, score
+RETURN node.uid AS uid, node.name AS name, score ORDER BY score DESC, uid""",
+
+    "communities": """CALL algo.labelPropagation({nodeLabels: ['Person'], relationshipTypes: ['CLOSE'], maxIterations: 20})
+YIELD node, communityId
+RETURN communityId AS cid, collect(node.uid) AS members""",
+
+    "hidden_teams": """CALL algo.WCC({nodeLabels: ['Person'], relationshipTypes: ['BRIDGES']})
+YIELD node, componentId
+MATCH (node)-[:MEMBER_OF]->(t:Team)
+RETURN componentId AS c, node.uid AS uid, node.name AS name, t.uid AS team, t.name AS team_name""",
+
+    "trace_path": """MATCH (x {uid: $a}), (y {uid: $b})
+WITH x, y MATCH p = allShortestPaths((x)-[:DEPENDS_ON|OWNS|MEMBER_OF|KNOWS|COLLABORATES|WORKED_ON|TOUCHES|USES*..6]-(y))
+RETURN [n IN nodes(p) | n.uid] AS uids, [n IN nodes(p) | coalesce(n.name, n.key)] AS names,
+       [r IN relationships(p) | type(r)] AS types, [r IN relationships(p) | startNode(r).uid] AS starts,
+       [r IN relationships(p) | r.uid] AS rel_uids,
+       [r IN relationships(p) | {touches: r.touches, last_at: r.last_at, weight: r.weight}] AS links
+LIMIT 3""",
+
+    "neighborhood": """MATCH (n {uid: $uid})-[r]-(m)
+WHERE NOT m:Change AND NOT m:Alias AND NOT m:Answer AND NOT m:Claim
+  AND (r.valid_to IS NULL OR r.valid_to > $asof) AND (r.valid_from IS NULL OR r.valid_from <= $asof)
+RETURN m.uid AS uid, coalesce(m.name, m.key, m.title) AS name, labels(m)[0] AS label, type(r) AS rel,
+       startNode(r).uid = $uid AS outgoing, r.uid AS rel_uid
+LIMIT 80""",
+
+    # ------------------------------------------------------------ decisions, customers, sources
+    "decision_history": """MATCH (d:Decision)
+WHERE d.uid = $uid OR (d)-[:AFFECTS]->({uid: $uid})
+OPTIONAL MATCH (d)-[:MADE_BY]->(t:Team)
+OPTIONAL MATCH (d)-[:DECIDED_BY]->(p:Person)
+OPTIONAL MATCH (d)-[s:SUPERSEDES]->(old:Decision)
+OPTIONAL MATCH (newer:Decision)-[s2:SUPERSEDES]->(d)
+OPTIONAL MATCH (d)-[:EVIDENCED_BY]->(src:Source)
+OPTIONAL MATCH (d)-[:AFFECTS]->(x)
+RETURN d.uid AS uid, d.key AS key, d.title AS title, d.status AS status, d.at AS decided_at, d.summary AS rationale,
+       t.name AS team, collect(DISTINCT p.name) AS decided_by,
+       collect(DISTINCT {uid: old.uid, key: old.key, how: s.how, direction: 'supersedes'}) +
+       collect(DISTINCT {uid: newer.uid, key: newer.key, how: s2.how, direction: 'superseded_by'}) AS related,
+       collect(DISTINCT {uid: src.uid, kind: labels(src)[1], title: coalesce(src.title, src.channel), at: src.at,
+                         text: src.text}) AS sources,
+       collect(DISTINCT x.name) AS affects
+ORDER BY decided_at""",
+
+    "decision_status": """MATCH (d:Decision) WHERE toUpper(d.key) = toUpper($k) OR d.uid = $k
+OPTIONAL MATCH (d)-[:AFFECTS]->(x)
+RETURN d.uid AS uid, d.key AS key, d.status AS status, collect(x.uid) AS affects, collect(x.name) AS affects_names""",
+
+    "customer_timeline": """MATCH (c:Customer {uid: $c})<-[:RAISED_BY]-(t:Ticket)
+WHERE t.at >= $since
+OPTIONAL MATCH (t)-[:ABOUT]->(s)
+OPTIONAL MATCH (b:Ticket)-[:BLOCKS*1..4]->(t) WHERE b.status = 'open'
+RETURN t.uid AS uid, t.key AS key, t.title AS title, t.kind AS kind, t.priority AS priority, t.status AS status,
+       t.at AS at, collect(DISTINCT s.name) AS about,
+       collect(DISTINCT {uid: b.uid, key: b.key, title: b.title, status: b.status}) AS blocked_by
+ORDER BY at DESC""",
+
+    "blame": """MATCH (a)-[r]->(b) WHERE r.uid = $fact_uid
+OPTIONAL MATCH (src:Source {uid: r.src})
+OPTIONAL MATCH (src)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
+OPTIONAL MATCH (dec:Decision {uid: r.src})
+RETURN r.uid AS fact, type(r) AS type, a.name AS subject, b.name AS object, r.valid_from AS valid_from,
+       CASE WHEN r.valid_to = '9999-12-31' THEN null ELSE r.valid_to END AS valid_to, r.recorded_at AS recorded_at,
+       r.src AS source_uid, coalesce(labels(src)[1], CASE WHEN dec IS NULL THEN null ELSE 'Decision' END) AS kind,
+       coalesce(src.title, src.channel, dec.title) AS title, null AS url, coalesce(src.at, dec.at) AS at,
+       coalesce(src.text, dec.summary) AS text, p.name AS author, r.quote AS quote, r.declared AS declared""",
+
+    "search_sources": """CALL db.idx.fulltext.queryNodes('Source', $text) YIELD node, score
+WHERE NOT node:Change
+OPTIONAL MATCH (node)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
+RETURN node.uid AS uid, labels(node)[1] AS kind, coalesce(node.title, node.channel) AS title, node.at AS at,
+       node.text AS text, p.name AS author, score
+ORDER BY score DESC LIMIT $limit""",
+
+    "find_entities": """CALL db.idx.fulltext.queryNodes('Alias', $q) YIELD node, score
+MATCH (node)-[:NAMES]->(n)
+RETURN DISTINCT n.uid AS uid, labels(n)[0] AS label, coalesce(n.name, n.key) AS name, max(score) AS score
+ORDER BY score DESC LIMIT $limit""",
+
+    "contradictions": """MATCH (c:Contradiction {status: 'open'})-[:BETWEEN]->(s:Source)
+OPTIONAL MATCH (s)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
+OPTIONAL MATCH (c)-[:ABOUT]->(x)
+RETURN c.uid AS uid, coalesce(c.summary, c.topic) AS summary, c.at AS detected_at,
+       collect(DISTINCT {uid: s.uid, at: s.at, title: coalesce(s.title, s.channel), text: s.text, author: p.name}) AS sources,
+       collect(DISTINCT x.name) AS about""",
+
+    # ------------------------------------------------------------ answers and the board
+    "stale_answers": """MATCH (a:Answer {status: 'fresh'})-[:MAKES]->(c:Claim)
+WHERE $fact_uid IN coalesce(c.facts, [])
+RETURN DISTINCT a.uid AS uid""",
+
+    "universe_risk": """MATCH (u:Universe {uid: $u})
+OPTIONAL MATCH (u)-[:SCORED]->(t:RiskTerm)
+WITH u, collect(t) AS terms
+RETURN CASE WHEN reduce(s = 0.0, t IN terms | s + t.points) > 100 THEN 100
+            ELSE toInteger(round(reduce(s = 0.0, t IN terms | s + t.points))) END AS risk_score,
+       [t IN terms | {kind: t.kind, subject: t.subject, points: t.points}] AS terms""",
+
+    "claim_task": """MATCH (x:Task) WHERE x.kind IN $kinds AND x.status = 'open' AND x.attempts < $max
+WITH x ORDER BY x.created_at LIMIT 1
+SET x.status = 'claimed', x.claimed_by = $agent, x.claimed_at = $now, x.attempts = x.attempts + 1
+RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload""",
+
+    # ------------------------------------------------------------ repo mode
+    "repo_hidden_coupling": """MATCH (a:Service)-[r:CO_CHANGES]-(b:Service)
+WHERE a.uid < b.uid AND a.kind IN $kinds AND b.kind IN $kinds AND NOT (a)-[:DEPENDS_ON]-(b)
+OPTIONAL MATCH (ta:Team)-[:OWNS]->(a)
+WITH a, b, r, collect(DISTINCT ta.name) AS owners_a
+OPTIONAL MATCH (tb:Team)-[:OWNS]->(b)
+WITH a, b, r, owners_a, collect(DISTINCT tb.name) AS owners_b
+WHERE none(x IN owners_a WHERE x IN owners_b)
+RETURN a.uid AS a_uid, a.name AS a, b.uid AS b_uid, b.name AS b, r.together AS together, r.jaccard AS jaccard,
+       a.changes AS a_changes, b.changes AS b_changes, owners_a, owners_b, r.since AS coupled_since,
+       split(a.name, '/')[0] <> split(b.name, '/')[0] AS cross_tree
+ORDER BY jaccard DESC, together DESC LIMIT $limit""",
+
+    "repo_knowledge_concentration": """MATCH (s:Service) WHERE s.kind IN $kinds
+OPTIONAL MATCH (p:Person)-[:AUTHORED]->(c:Change)-[:MODIFIES]->(s) WHERE c.at >= $since
+WITH s, p, count(c) AS n
+WITH s, sum(n) AS changes, sum(CASE WHEN p IS NULL THEN 0 ELSE 1 END) AS authors, max(n) AS top
+WHERE changes >= $min_changes
+OPTIONAL MATCH (k:Person)-[:KNOWS]->(s)
+RETURN s.uid AS uid, s.name AS module, s.kind AS kind, s.tier AS tier, toInteger(changes) AS changes,
+       toInteger(authors) AS authors, count(k) AS knowers,
+       toInteger(round(100.0 * top / changes)) AS top_author_share
+ORDER BY knowers, changes DESC""",
+
+    "repo_cochange_impact": """MATCH (r:Service {uid: $r})-[c:CO_CHANGES]-(s:Service)
+OPTIONAL MATCH (k:Person)-[:KNOWS]->(s)
+WITH r, c, s, count(DISTINCT k) AS knowers
+OPTIONAL MATCH (b:Person)-[:KNOWS]->(s) WHERE (b)-[:KNOWS]->(r)
+WITH r, c, s, knowers, count(DISTINCT b) AS know_both
+OPTIONAL MATCH (t:Team)-[:OWNS]->(s)
+RETURN r.name AS retired, s.uid AS uid, s.name AS module, s.kind AS kind, s.tier AS tier, c.together AS together,
+       c.jaccard AS jaccard, toInteger(round(100.0 * c.together / r.changes)) AS share_of_retired_prs, knowers, know_both,
+       collect(DISTINCT t.name) AS owners
+ORDER BY together DESC LIMIT 15""",
+}
+
+
+def cypher(name: str) -> str:
+    return Q[name]
