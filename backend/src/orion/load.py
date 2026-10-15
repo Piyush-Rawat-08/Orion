@@ -169,8 +169,9 @@ def reset(db: dbm.DB, tenant: str = "corvane") -> dict:
     for prefix in (f"epoch:{tenant}:", f"universe:{tenant}:", f"deck:{tenant}", f"mem:{tenant}:"):
         for g in db.graphs(prefix):
             db.delete(g)
-    for k in db.redis.keys(f"orion:{tenant}:*") + db.redis.keys(f"orion:epoch:epoch:{tenant}:*"):
-        db.redis.delete(k)
+    db.drop(f"orion:{tenant}:")
+    db.drop(f"orion:epoch:epoch:{tenant}:")
+    db.drop(f"orion:snap:epoch:{tenant}:")
     stats = load(db, corvane.build())
     built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
     db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")

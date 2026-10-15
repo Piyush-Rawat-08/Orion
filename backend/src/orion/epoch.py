@@ -71,10 +71,11 @@ MATCH (p:Person)-[:AUTHORED]->(c:Change)-[:MODIFIES]->(s:Service)
 WHERE c.day > $day - $window
 MATCH (p)-[:MEMBER_OF]->(t:Team)
 WITH s, t, count(c) AS n
-WITH s, collect({t: t, n: n}) AS by, sum(n) AS total
+WITH s, collect({team: t.uid, n: n}) AS by, sum(n) AS total
 UNWIND by AS x
-WITH s, x.t AS t, x.n AS n, total
-WHERE toFloat(n) / total >= 0.5 AND NOT (t)-[:OWNS]->(s)
+WITH s, x.team AS team, x.n AS n, total
+WHERE toFloat(n) / total >= 0.5
+MATCH (t:Team {uid: team}) WHERE NOT (t)-[:OWNS]->(s)
 CREATE (t)-[:OWNS {declared: false, share: toFloat(n) / total, changes: n, uid: 'own-de-facto:' + t.uid + '->' + s.uid}]->(s)
 """
 

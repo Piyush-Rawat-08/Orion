@@ -40,7 +40,7 @@ def _cost(db: dbm.DB, g: str, before: dict, tiers: dict) -> tuple[list, list, li
 def departures(db: dbm.DB, t: str, top: int = 12) -> dict:
     v = dbm.version(db, t)
     key = f"orion:{t}:departures"
-    hit = db.redis.get(key)
+    hit = db.get(key)
     if hit:
         data = json.loads(hit)
         if data.get("version") == v:
@@ -75,5 +75,5 @@ def departures(db: dbm.DB, t: str, top: int = 12) -> dict:
     ranked.sort(key=lambda r: (-r["risk"], -len(r["nobody_would_know"]), -r["knows_count"], r["name"]))
     data = {"version": v, "asof": snap["asof"], "people": ranked[:top], "total": len(ranked),
             "ms": round((time.perf_counter() - t0) * 1000)}
-    db.redis.set(key, json.dumps(data), ex=86400)
+    db.set(key, json.dumps(data), ex=86400)
     return data

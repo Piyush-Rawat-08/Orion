@@ -28,8 +28,8 @@ def drop(db, t: str) -> None:
     for g in db.graphs(f"org:{t}") + db.graphs(f"epoch:{t}:") + db.graphs(f"universe:{t}:") + \
             db.graphs(f"deck:{t}") + db.graphs(f"mem:{t}:"):
         db.delete(g)
-    for k in db.redis.keys(f"orion:{t}:*") + db.redis.keys(f"orion:epoch:epoch:{t}:*"):
-        db.redis.delete(k)
+    for prefix in (f"orion:{t}:", f"orion:epoch:epoch:{t}:", f"orion:snap:epoch:{t}:", f"orion:deck-indexed:deck:{t}"):
+        db.drop(prefix)
 
 
 @pytest.fixture

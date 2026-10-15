@@ -147,3 +147,23 @@ def test_a_worker_does_the_fork_and_the_poster_reads_the_result_off_the_board(db
     assert res["_worker"] not in (None, "inline") and res["diff"]["risk"]["level"] == "high"
     done = db.ro(dbm.deck(tenant), "MATCH (x:Task {uid: $u}) RETURN x.status AS s", {"u": res["_task"]})
     assert done == [{"s": "done"}]
+
+
+def test_counters_and_locks_live_in_a_graph_and_hold_under_races(db, tenant):
+    from concurrent.futures import ThreadPoolExecutor
+
+    key = f"orion:{tenant}:race"
+    with ThreadPoolExecutor(8) as pool:
+        got = list(pool.map(lambda _: db.incr(key), range(40)))
+    assert sorted(got) == list(range(1, 41))
+    first = db.lock(f"{tenant}:x", ttl=30, wait=0)
+    with first:
+        try:
+            with db.lock(f"{tenant}:x", ttl=30, wait=0.3):
+                raise AssertionError("two holders at once")
+        except dbm.LockTimeout:
+            pass
+    with db.lock(f"{tenant}:x", ttl=30, wait=0.3):
+        pass  # free again once released
+    db.set(f"orion:{tenant}:gone", "1", ex=-1)
+    assert db.get(f"orion:{tenant}:gone") is None  # expired

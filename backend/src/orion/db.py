@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextvars
 import threading
+import os
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -95,6 +96,7 @@ class DB:
                                ssl=config.FALKORDB_SSL)
         self.redis = self.client.connection
         self.log: deque[Logged] = deque(maxlen=400)
+        self._meta_ready = False
 
     def _logged(self, name: str, cypher: str, t0: float, n: int, ro: bool) -> None:
         self.log.append(Logged(name, cypher, (time.perf_counter() - t0) * 1000, n, ro, time.time() * 1000,
@@ -141,19 +143,75 @@ class DB:
         names = [n.decode() if isinstance(n, bytes) else n for n in self.redis.execute_command("GRAPH.LIST")]
         return sorted(n for n in names if n.startswith(prefix))
 
-    # small key-value state next to the graphs: tenant clocks and version counters
-    def get(self, key: str) -> str | None:
-        v = self.redis.get(key)
-        return v.decode() if isinstance(v, bytes) else v
+    # Small state next to the graphs (tenant clocks, version counters, caches, locks) lives in a graph of its own,
+    # orion:meta, not in Redis keys: FalkorDB Cloud users may run graph commands only. Writes to one graph run one at
+    # a time, so incr and lock are atomic. These queries are housekeeping and stay out of the query log.
+    def _meta(self, cypher: str, params: dict, write: bool = True) -> list:
+        if not self._meta_ready:
+            for label in ("KV", "Lock"):
+                try:
+                    self.graph(META).query(f"CREATE INDEX FOR (x:{label}) ON (x.k)")
+                except Exception:
+                    pass  # already there
+            self._meta_ready = True
+        g = self.graph(META)
+        res = g.query(cypher, params) if write else g.ro_query(cypher, params)
+        return res.result_set
 
-    def set(self, key: str, value: str) -> None:
-        self.redis.set(key, value)
+    def get(self, key: str) -> str | None:
+        rows = self._meta("MATCH (x:KV {k: $k}) WHERE x.exp IS NULL OR x.exp > $now RETURN x.v",
+                          {"k": key, "now": time.time()}, write=False)
+        return rows[0][0] if rows else None
+
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self._meta("MERGE (x:KV {k: $k}) SET x.v = $v, x.exp = $exp",
+                   {"k": key, "v": value, "exp": time.time() + ex if ex else None})
 
     def incr(self, key: str) -> int:
-        return int(self.redis.incr(key))
+        rows = self._meta("MERGE (x:KV {k: $k}) ON CREATE SET x.v = '0' SET x.v = toString(toInteger(x.v) + 1) RETURN x.v",
+                          {"k": key})
+        return int(rows[0][0])
 
-    def lock(self, key: str, ttl: int = 60):
-        return self.redis.lock(f"orion:lock:{key}", timeout=ttl, blocking_timeout=ttl)
+    def drop(self, prefix: str) -> None:
+        """Forget every key that starts with `prefix`."""
+        self._meta("MATCH (x:KV) WHERE x.k STARTS WITH $p DELETE x", {"p": prefix})
+
+    def lock(self, key: str, ttl: int = 60, wait: float | None = None) -> "GraphLock":
+        return GraphLock(self, key, ttl, ttl if wait is None else wait)
+
+
+META = "orion:meta"
+
+
+class LockTimeout(TimeoutError):
+    pass
+
+
+class GraphLock:
+    """A lease on a key: taken by one MERGE, released by its holder, free again once it expires."""
+
+    def __init__(self, db: "DB", key: str, ttl: int, wait: float):
+        self.db, self.key, self.ttl, self.wait = db, key, ttl, wait
+        self.token = os.urandom(8).hex()
+
+    def acquire(self) -> bool:
+        now = time.time()
+        rows = self.db._meta("""MERGE (l:Lock {k: $k}) ON CREATE SET l.token = $tok, l.exp = $exp
+                                WITH l WHERE l.token = $tok OR l.exp < $now
+                                SET l.token = $tok, l.exp = $exp RETURN l.token""",
+                             {"k": self.key, "tok": self.token, "exp": now + self.ttl, "now": now})
+        return bool(rows)
+
+    def __enter__(self):
+        deadline = time.time() + self.wait
+        while not self.acquire():
+            if time.time() > deadline:
+                raise LockTimeout(f"{self.key} is busy")
+            time.sleep(0.1)
+        return self
+
+    def __exit__(self, *exc):
+        self.db._meta("MATCH (l:Lock {k: $k}) WHERE l.token = $tok DELETE l", {"k": self.key, "tok": self.token})
 
 
 def _rows(res) -> list[dict]:

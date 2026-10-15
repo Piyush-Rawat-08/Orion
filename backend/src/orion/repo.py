@@ -41,7 +41,7 @@ def _mine(t: str) -> None:
 
 
 def _meta(db: dbm.DB, t: str) -> dict:
-    raw = db.redis.get(f"orion:{t}:repo")
+    raw = db.get(f"orion:{t}:repo")
     if not raw:
         raise KeyError(f"{t} is not a loaded repository")
     return json.loads(raw)
@@ -55,8 +55,9 @@ def _wipe(db: dbm.DB, t: str) -> None:
     _mine(t)
     for g in db.graphs(f"epoch:{t}:") + db.graphs(f"universe:{t}:") + db.graphs(f"mem:{t}:") + [dbm.org(t), dbm.deck(t)]:
         db.delete(g)
-    for k in db.redis.keys(f"orion:{t}:*") + db.redis.keys(f"orion:epoch:epoch:{t}:*"):
-        db.redis.delete(k)
+    db.drop(f"orion:{t}:")
+    db.drop(f"orion:epoch:epoch:{t}:")
+    db.drop(f"orion:snap:epoch:{t}:")
 
 
 # ---------------------------------------------------------------- ingest

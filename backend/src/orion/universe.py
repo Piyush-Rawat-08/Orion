@@ -458,22 +458,20 @@ def approval_state(db: dbm.DB, t: str, uid: str, u: dict | None = None) -> dict:
 
 
 class _Lock:
-    """A short Redis lock per universe, so two people deciding at the same moment are taken one at a time."""
+    """A short lock per universe, so two people deciding at the same moment are taken one at a time."""
 
     def __init__(self, db: dbm.DB, t: str, uid: str, ttl: int = 120):
-        self.r, self.key, self.ttl, self.token = db.redis, f"orion:lock:{t}:universe:{uid}", ttl, secrets.token_hex(8)
+        self.lock = db.lock(f"{t}:universe:{uid}", ttl=ttl, wait=5)
 
     def __enter__(self):
-        for _ in range(50):
-            if self.r.set(self.key, self.token, nx=True, ex=self.ttl):
-                return self
-            time.sleep(0.1)
-        raise Busy("someone else is deciding on this right now; try again in a moment")
+        try:
+            self.lock.__enter__()
+        except dbm.LockTimeout:
+            raise Busy("someone else is deciding on this right now; try again in a moment") from None
+        return self
 
     def __exit__(self, *exc):
-        held = self.r.get(self.key)
-        if (held.decode() if isinstance(held, bytes) else held) == self.token:
-            self.r.delete(self.key)
+        self.lock.__exit__(*exc)
 
 
 def rebase(db: dbm.DB, t: str, uid: str) -> dict:

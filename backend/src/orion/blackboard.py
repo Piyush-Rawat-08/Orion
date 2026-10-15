@@ -37,10 +37,10 @@ def _deck(db: dbm.DB, t: str) -> str:
     from orion.universe import deck
 
     g = deck(db, t)
-    if not db.exists(g) or not db.redis.sismember("orion:deck-indexed", g):
+    if not db.exists(g) or not db.get(f"orion:deck-indexed:{g}"):
         db.q(g, "CREATE INDEX FOR (x:Task) ON (x.uid)")
         db.q(g, "CREATE INDEX FOR (x:Task) ON (x.status)")
-        db.redis.sadd("orion:deck-indexed", g)
+        db.set(f"orion:deck-indexed:{g}", "1")
     return g
 
 
