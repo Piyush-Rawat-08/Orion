@@ -103,6 +103,20 @@ def fork(db: dbm.DB, t: str, ops: list[dict], *, by: str, kind: str = "whatif", 
     return rec | {"diff": d}
 
 
+def replay(db: dbm.DB, t: str, ops: list[dict]) -> dict:
+    """The diff the same ops would give on today's company, on a throwaway copy: no record, no finding."""
+    import secrets
+
+    base = ep.now(db, t)
+    graph = dbm.universe(t, "replay-" + secrets.token_hex(4))
+    db.copy(base, graph)
+    try:
+        opsm.apply_physical(db, graph, ops, dbm.clock(db, t))
+        return diff(db, t, base, graph, ops)
+    finally:
+        db.delete(graph)
+
+
 def _save(db: dbm.DB, t: str, rec: dict, d: dict) -> None:
     g = _deck(db, t)
     db.q(g, """MERGE (u:Universe {uid: $uid})
