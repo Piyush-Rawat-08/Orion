@@ -8,6 +8,8 @@ import { open, TENANT } from "@/lib/api";
 import { teamColor } from "@/lib/palette";
 import { useSession } from "@/lib/session";
 import type { Person } from "@/lib/types";
+import { CommandPalette } from "./CommandPalette";
+import { useCosmos } from "./cosmos/CosmosProvider";
 import { EASE, Initials } from "./ui";
 
 const NAV = [
@@ -39,6 +41,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { meta, ready, signIn, signOut } = useSession();
   const [menu, setMenu] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
+  const { engine } = useCosmos();
+  const [last, setLast] = useState(path);
+
+  // moving between places is a short jump through hyperspace
+  useEffect(() => {
+    if (path !== last) {
+      engine?.warp(900);
+      setLast(path);
+    }
+  }, [path, last, engine]);
 
   useEffect(() => {
     if (ready && !meta) router.replace("/");
@@ -84,7 +96,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="pointer-events-auto relative">
+        <div className="pointer-events-auto relative flex items-center gap-2">
+          <button onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+                  className="mono hidden rounded-full border border-white/[0.07] bg-[#070a13]/70 px-3 py-2 text-[10px] text-faint backdrop-blur-xl transition-colors hover:text-ink lg:block">
+            find ⌘K
+          </button>
           <button onClick={() => setMenu((m) => !m)}
                   className="flex items-center gap-2.5 rounded-full border border-white/[0.07] bg-[#070a13]/70 py-1 pl-1 pr-3 backdrop-blur-xl transition-colors hover:border-white/15">
             <Initials name={meta.me.name} team={meta.me.team} />
@@ -133,6 +149,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
 
+      <CommandPalette />
       {children}
     </div>
   );

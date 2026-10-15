@@ -752,7 +752,7 @@ export class Cosmos {
       p = n.to.clone();
       kind = n.kind;
     } else p = new THREE.Vector3(...target);
-    const d = dist ?? (kind === "team" ? 85 : kind === "customer" ? 70 : 55);
+    const d = dist ?? (kind === "team" ? 90 : kind === "customer" ? 80 : 72);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     dir.y = Math.max(dir.y, 0.35);
     dir.normalize();

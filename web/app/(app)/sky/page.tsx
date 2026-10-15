@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AskDock } from "@/components/AskDock";
 import { useCosmos } from "@/components/cosmos/CosmosProvider";
 import { EntityPanel } from "@/components/EntityPanel";
-import { EASE, TeamDot } from "@/components/ui";
+import { EASE, Magnetic, TeamDot } from "@/components/ui";
+import { post } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import { useApi, useGalaxy } from "@/lib/hooks";
 import { teamColor } from "@/lib/palette";
 import type { Effect } from "@/lib/types";
@@ -30,6 +32,15 @@ export default function SkyPage() {
   const [story, setStory] = useState<string | null>(null);
   const [deps, setDeps] = useState(true);
   const [askOpen, setAskOpen] = useState(false);
+  const [tour, setTour] = useState<number | null>(null);
+  const router = useRouter();
+
+  // ⌘K picks something anywhere in the app and lands here
+  useEffect(() => {
+    const on = (e: Event) => setSelected((e as CustomEvent<string>).detail);
+    window.addEventListener("orion:select", on);
+    return () => window.removeEventListener("orion:select", on);
+  }, []);
 
   useEffect(() => {
     setVeil(0);
@@ -141,11 +152,72 @@ export default function SkyPage() {
     setTimeout(() => engine.blast([root], hits), 900);
   }
 
+  const TOUR: { caption: string; sub: string; run: () => void }[] = [
+    { caption: "This is Corvane.", sub: "Forty people, six teams, twenty-five running services. Each arm of the galaxy is a team.",
+      run: () => { engine?.clearBlast(); engine?.setFocus(null); engine?.setConstellations("all"); engine?.home(); engine?.setAutoRotate(true); } },
+    { caption: "Every star is a service.", sub: "Its size is how much depends on it (PageRank). The filaments are dependencies, pulsing in the direction of each call.",
+      run: () => { engine?.setFocus(null); engine?.flyTo("svc:secrets-vault", 120); } },
+    { caption: "Only Ines knows the ledger.", sub: "A tier-1 service with a bus factor of one: she is the only person with three or more changes or reviews in six months.",
+      run: () => { const s = stories.find((x) => x.key.startsWith("bus-")); if (s) playStory(s); } },
+    { caption: "Nobody knows reports-legacy.", sub: "Marcus Bell left in July. Pinecrest Bank's nightly CSV came out empty six weeks later.",
+      run: () => { const s = stories.find((x) => x.key.startsWith("orphan-")); if (s) playStory(s); } },
+    { caption: "A team the org chart doesn't show.", sub: "Five people from Runtime, Data and Signals work as one group. Connected components over collaboration across team lines.",
+      run: () => { const s = stories.find((x) => x.key === "hidden"); if (s) playStory(s); } },
+    { caption: "What if secrets-vault went down?", sub: "The failure travels out one hop at a time: red breaks, orange degrades, grey goes stale.",
+      run: async () => {
+        setStory(null);
+        pick(null);
+        try {
+          const r = await post<{ rows: { dependents: { uid: string; effect: Effect; depth: number; path: string[] }[] } }>("tools/impact", { service: "secrets-vault" });
+          blast("svc:secrets-vault", r.rows.dependents.map((d) => ({ uid: d.uid, effect: d.effect, depth: d.depth, path: d.path.map((n) => `svc:${n}`) })));
+        } catch {}
+      } },
+  ];
+
+  useEffect(() => {
+    if (tour === null) return;
+    if (tour >= TOUR.length) {
+      setTour(null);
+      return;
+    }
+    TOUR[tour].run();
+    const t = setTimeout(() => setTour((x) => (x === null ? null : x + 1)), tour === TOUR.length - 1 ? 9000 : 6500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tour]);
+
   return (
     <main className="pointer-events-none relative z-10 min-h-dvh">
+      {/* the tour */}
+      <AnimatePresence>
+        {tour !== null && tour < TOUR.length && (
+          <motion.div key={tour} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.7, ease: EASE }}
+                      className="pointer-events-auto fixed inset-x-4 bottom-24 z-40 mx-auto max-w-[760px] text-center md:bottom-12">
+            <div className="mono mb-2 text-[10px] tracking-[0.16em] text-faint">{tour + 1} / {TOUR.length}</div>
+            <div className="display text-[clamp(2rem,5vw,3.6rem)] leading-[1.02] tracking-[-0.03em] [text-shadow:0_0_40px_rgba(4,5,10,.9)]">{TOUR[tour].caption}</div>
+            <p className="mx-auto mt-3 max-w-[560px] text-[14px] leading-relaxed text-ink/75 [text-shadow:0_0_20px_rgba(4,5,10,.95)]">{TOUR[tour].sub}</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <button onClick={() => setTour(null)} className="mono rounded-full border border-white/10 px-3 py-1 text-[11px] text-muted hover:text-ink">end tour</button>
+              {tour < TOUR.length - 1 ? (
+                <button onClick={() => setTour(tour + 1)} className="mono rounded-full border border-white/10 px-3 py-1 text-[11px] text-muted hover:text-ink">next</button>
+              ) : (
+                <button onClick={() => router.push("/multiverse?op=retire_service&service=sso-legacy")} className="rounded-full bg-amber px-3 py-1 text-[12px] text-void">
+                  Now fork the company
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* storylines */}
       <div className="pointer-events-auto fixed left-4 top-[88px] z-20 hidden max-w-[calc(100vw-470px)] md:left-6 md:block">
-        <div className="mono mb-2 text-[10px] tracking-[0.14em] text-faint">WHAT THE GRAPH NOTICED</div>
+        <div className="mb-2 flex items-center gap-3">
+          <span className="mono text-[10px] tracking-[0.14em] text-faint">WHAT THE GRAPH NOTICED</span>
+          <Magnetic onClick={() => setTour(0)} className="rounded-full bg-amber/90 px-3 py-0.5 text-[11px] text-void shadow-[0_0_24px_-6px_#ffb547]">
+            Take the tour
+          </Magnetic>
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {stories.map((s, i) => (
             <motion.button key={s.key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE, delay: 0.3 + i * 0.06 }}
