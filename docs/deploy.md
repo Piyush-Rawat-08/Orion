@@ -34,7 +34,8 @@ or near-free tier. Do them in this order, because each one needs the address of 
    | `ORION_SECRET` | a long random string (`python3 -c "import secrets; print(secrets.token_hex(32))"`) |
    | `ORION_CORS` | the Vercel address from step 3, e.g. `https://orion-corvane.vercel.app` (update it after step 3) |
    | `ORION_LLM_PER_HOUR` | `60` (model calls per visitor per hour) |
-   | `ORION_ADMIN_TOKEN` | another random string, if you want `POST /api/admin/reset` |
+   | `ORION_ADMIN_TOKEN` | another random string, if you want `POST /api/corvane/reset` |
+   | `GITHUB_TOKEN` | a GitHub token with public read access, for the Codebases screen |
 
 4. **Settings → Networking → Generate Domain**. Check `https://<your-api>.up.railway.app/api/health` returns
    `{"ok": true, ...}`.
@@ -52,7 +53,7 @@ or near-free tier. Do them in this order, because each one needs the address of 
 Visitors change the company (merges, live messages). To put it back:
 
 ```bash
-curl -X POST https://<your-api>.up.railway.app/api/admin/reset -H "X-Admin-Token: <ORION_ADMIN_TOKEN>"
+curl -X POST https://<your-api>.up.railway.app/api/corvane/reset -H "X-Admin-Token: <ORION_ADMIN_TOKEN>"
 ```
 
 ## One box instead

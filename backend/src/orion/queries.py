@@ -54,12 +54,12 @@ RETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_nam
 RETURN DISTINCT s.uid AS uid, s.name AS name, s.retired AS retired_at""",
 
     "undeclared": """MATCH (a:Service)-[r:DEPENDS_ON]->(b:Service)
-WHERE r.declared = false
+WHERE r.declared = false AND r.valid_to = '9999-12-31'
 OPTIONAL MATCH (src:Source {uid: r.src})
 OPTIONAL MATCH (src)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
 RETURN a.uid AS source_uid, a.name AS source, b.uid AS target_uid, b.name AS target, r.uid AS fact, r.kind AS kind,
        coalesce(r.quote, src.text) AS quote, r.valid_from AS since,
-       {kind: labels(src)[1], title: coalesce(src.title, src.channel), at: src.at, author: p.name, url: null,
+       {kind: src.kind, title: coalesce(src.title, src.channel), at: src.at, author: p.name, url: src.url,
         text: src.text} AS found_in
 ORDER BY since DESC""",
 

@@ -62,3 +62,18 @@ def test_what_if_claims_are_checked_against_the_universe(db, tenant):
 def test_decision_status(db, tenant):
     assert check(db, tenant, kind="decided", subject="ADR-011", value="reversed", text="ADR-011 was reversed.")["verdict"] == "verified"
     assert check(db, tenant, kind="decided", subject="ADR-011", value="accepted", text="ADR-011 is in force.")["verdict"] == "contradicted"
+
+
+def test_orphan_and_approver_claims_are_checked_against_what_the_what_if_found(db, tenant):
+    rec = uv.fork(db, tenant, [{"op": "remove_person", "person": "Ines Okafor"}], created_by="person:daniel-osei")
+    u = rec["uid"]
+    assert check(db, tenant, kind="orphans", subject=u, objects=["ledger"],
+                 text="If Ines Okafor left, nobody would know the ledger.")["verdict"] == "verified"
+    assert check(db, tenant, kind="orphans", subject=u, objects=["identity"],
+                 text="Nobody would know identity.")["verdict"] == "contradicted"
+    sso = uv.fork(db, tenant, [{"op": "deprecate_service", "service": "sso-legacy"}], created_by="person:priya-raman")
+    r = check(db, tenant, kind="approvers", subject=sso["uid"], objects=["Billing", "Console", "Data", "Platform"],
+              exhaustive=True, text="Billing, Console, Data and Platform must all agree.")
+    assert r["verdict"] == "verified"
+    assert check(db, tenant, kind="count", subject=sso["uid"], measure="approvers", value="4",
+                 text="Four teams must agree.")["verdict"] == "verified"

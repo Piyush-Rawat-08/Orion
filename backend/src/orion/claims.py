@@ -32,9 +32,10 @@ from orion import impact
 from orion import ops as opsm
 from orion.queries import cypher
 
-KINDS = ["breaks", "knows", "owns", "depends_on", "decided", "count", "metric", "free"]
-MEASURES = ["knowers", "owners", "dependents", "dependencies", "broken", "risk", "bus_factor", "tier"]
-SET_KINDS = ("breaks", "knows", "owns", "depends_on")
+KINDS = ["breaks", "orphans", "approvers", "knows", "owns", "depends_on", "decided", "count", "metric", "free"]
+MEASURES = ["knowers", "owners", "dependents", "dependencies", "broken", "orphans", "approvers", "risk", "bus_factor",
+            "tier"]
+SET_KINDS = ("breaks", "orphans", "approvers", "knows", "owns", "depends_on")
 EXHAUSTIVE_WORDS = re.compile(r"\b(only|just|all|every|exactly|sole|solely|alone|nobody else|no one else|none other|"
                               r"the whole|entire)\b", re.I)
 MENTION_LABELS = ("Service", "Person", "Customer", "Decision")
@@ -204,6 +205,10 @@ def _check(db: dbm.DB, t: str, claim: dict, today: bool, asof: str | None) -> di
                                  "breadth-first over DEPENDS_ON from every :Retired service; each witness path re-runs as:\n"
                                  + cypher("broken_detail"))}
 
+    if kind in ("orphans", "approvers"):
+        u = _universe(db, t, subject, need_graph=False)
+        return _diff_set(db, t, u, kind, objects, exhaustive)
+
     if kind in ("knows", "owns"):
         s = _uid(db, g, "Service", subject)
         if kind == "knows":
@@ -286,6 +291,29 @@ def _customers_verdict(u: dict, claimed: set[str], exhaustive: bool, graph: str)
             "check": receipt(graph, "customers_affected", {"universe": u["uid"]}, {"customers": sorted(found.values())})}
 
 
+def _diff_set(db: dbm.DB, t: str, u: dict, kind: str, objects: list[str], exhaustive: bool) -> dict:
+    """Systems nobody would know any more (orphans), or teams that must agree (approvers), as the what-if found them."""
+    d = json.loads(u.get("diff_json") or "{}")
+    if kind == "orphans":
+        found = {o["uid"]: o["service"] for o in d.get("new_orphans", [])}
+        label, query = "Service", "knowledge_orphans"
+    else:
+        found = {r["team_uid"]: r["team"] for r in d.get("required_approvers", [])}
+        label, query = "Team", "required_approvers"
+    claimed = {_uid(db, dbm.org(t), label, o) for o in objects}
+    verdict, why = _set_verdict(claimed, set(found), exhaustive,
+                                lambda x: sorted(found.get(i) or impact.names(db, dbm.org(t), [i]).get(i, i) for i in x))
+    who = f"what-if {u['uid']}"
+    why = (why.replace("the records don't show", f"{who} doesn't show").replace("the records also show", f"{who} also shows")
+              .replace("the records show", f"{who} shows"))
+    return {"verdict": verdict, "reason": why,
+            "check": receipt(u.get("graph") or dbm.deck(t), query, {"universe": u["uid"]},
+                             {kind: sorted(found.values())},
+                             f"what-if {u['uid']} against the company it was copied from: "
+                             + ("services someone knew before and nobody knows after (no incoming KNOWS)"
+                                if kind == "orphans" else "the teams that own or run something the change touches"))}
+
+
 def _breaks_on(db: dbm.DB, t: str, u: dict, objects: list[str], exhaustive: bool, asof: str | None = None) -> dict:
     """What the universe's changes break on today's company (or the company on `asof`): replayed on a scratch copy,
     compared with the claim. This is how an answer about a what-if learns the company moved on."""
@@ -324,6 +352,13 @@ def _measure(db: dbm.DB, t: str, g: str, measure: str | None, subject: str) -> t
         row = db.ro(deck(db, t), cypher("universe_risk"), {"u": u["uid"]})[0]
         return float(row["risk_score"]), receipt(dbm.deck(t), "universe_risk", {"u": u["uid"]},
                                                  {"risk_score": row["risk_score"], "terms": row["terms"]})
+    if measure in ("orphans", "approvers"):
+        u = _universe(db, t, subject, need_graph=False)
+        d = json.loads(u.get("diff_json") or "{}")
+        rows = d.get("new_orphans" if measure == "orphans" else "required_approvers", [])
+        names = sorted(r.get("service") or r.get("team") for r in rows)
+        return float(len(rows)), receipt(dbm.deck(t), measure, {"universe": u["uid"]}, {measure: len(rows), "names": names},
+                                         f"the {measure} what-if {u['uid']} found")
     if measure == "broken":
         u = _universe(db, t, subject)
         reach = broken_in(db, u["graph"])

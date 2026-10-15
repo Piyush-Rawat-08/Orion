@@ -42,11 +42,14 @@ How to work:
 - Type every claim you can, so the graph checks it (a typed claim that matches the graph is "verified"; free text is
   only "judged" by a model):
   breaks: subject = what-if id (e.g. u12), objects = services that break, or (on their own) the customers who would notice
+  orphans: subject = what-if id, objects = services nobody would know any more after the change
+  approvers: subject = what-if id, objects = teams that must agree to the change
   knows: subject = service, objects = people who know it
   owns: subject = service, objects = owning teams (declared or de facto)
   depends_on: subject = service, objects = what it relies on (measure "dependents" = what relies on it)
   decided: subject = decision key (ADR-011), value = its status, objects = what it affects
-  count: subject = entity or what-if, measure = knowers|owners|dependents|dependencies|broken, value = the number
+  count: subject = entity or what-if, measure = knowers|owners|dependents|dependencies|broken|orphans|approvers,
+         value = the number
   metric: subject = service or what-if, measure = risk|bus_factor|tier, value = the number
   free: anything else (why, history, judgement)
   exhaustive = true when the claim says these are ALL of them ("only Ines knows", "breaks exactly...").

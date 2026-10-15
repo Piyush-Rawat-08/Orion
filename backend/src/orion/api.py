@@ -24,6 +24,7 @@ from orion import universe as uv
 from orion.agents import sentinel
 from orion.config import env
 from orion.security import VIEWER, Auth, Session, issue_token, limit, require_admin, same_user
+from orion.queries import cypher
 from orion.tools import ToolContext, call_tool, own_graph
 
 DEMO = "corvane"
@@ -397,14 +398,7 @@ def departures(tenant: str, s: Session = Auth) -> dict:
 def undeclared(tenant: str, s: Session = Auth) -> list[dict]:
     """Dependencies nobody wrote down, each with where Orion found it and the words it came from."""
     known(tenant)
-    return get_db().ro(dbm.org(tenant), """
-        MATCH (a:Service)-[r:DEPENDS_ON]->(b:Service) WHERE r.declared = false AND r.valid_to = '9999-12-31'
-        OPTIONAL MATCH (src:Source {uid: r.src}) OPTIONAL MATCH (src)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
-        WITH a, b, r, collect({kind: src.kind, title: coalesce(src.title, src.channel), at: src.at, author: p.name,
-                               url: src.url, text: src.text})[0] AS found
-        RETURN a.uid AS source_uid, a.name AS source, b.uid AS target_uid, b.name AS target, r.uid AS fact,
-               r.kind AS kind, coalesce(r.quote, found.text) AS quote, found AS found_in, r.valid_from AS since
-        ORDER BY since DESC""")
+    return get_db().ro(dbm.org(tenant), cypher("undeclared"))
 
 
 @app.get("/api/{tenant}/blame")
