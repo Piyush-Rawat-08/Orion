@@ -45,8 +45,9 @@ afterwards it can tell you exactly how big the blind spot was.
 
 The live demo is at **https://orion-gamma-six.vercel.app**. It opens on a real answer Priya got to "What breaks if we
 switch off sso-legacy?", with every point marked checked or not. If the header says "Waking the API", give it a
-minute: the API runs on a free host that sleeps. Then do three things, in order (the **Start here** panel walks you
-through them too):
+minute: the API runs on a free host that sleeps. Your first visit gets a copy of the company of its own, so nothing
+you change spoils it for the next person. Then do three things, in order (the **Start here** panel walks you through
+them too):
 
 1. **Break something.** Press "Open the what-if". sso-legacy is switched off in a copy of the company: see what stops
    working and who would notice, then press **Find the safe path**.
@@ -123,8 +124,9 @@ How cheap is a copy? Here's what I measured, with the copy kept separate from th
 |---|---|---|
 | `GRAPH.COPY` of today's Corvane (1,716 nodes, 4,999 relationships) | local FalkorDB, my desktop | 62 ms, median of 20 runs (51 to 79) |
 | Rebuilding today's epoch: copy, prune, recompute derived edges | FalkorDB Cloud | about 2.9 s |
-| Safe path: 16 candidate companies copied and scored | local FalkorDB | about 1.1 s |
-| The same safe path search | FalkorDB Cloud, free tier | about 10 s |
+| Safe path: 4 candidate companies copied and scored | local FalkorDB | about 0.4 s |
+| The same safe path search | FalkorDB Cloud, free tier | about 7 s |
+| A visitor's own copy of Corvane (five graphs) | FalkorDB Cloud, free tier | about 2.5 s |
 
 The cheap copy is what made the design possible. If a copy took ten seconds, I'd have built some clever overlay
 system. At 60 ms, every question can just have its own company.
@@ -156,10 +158,12 @@ they ever differ, the what-if was lying.
 
 Telling someone "this will break five things" is half an answer. They want to know how to do it safely.
 
-So Orion searches for a plan. For every service that would break, it tries a fix: move it onto a replacement (a
-service a decision names alongside the retired one, or one its neighbours already moved to), or switch it off too if
-nothing depends on it. Every candidate plan is its own `GRAPH.COPY` with the plan applied, scored exactly like a
-what-if. A beam search keeps the four safest plans at each depth.
+So Orion searches for a plan. For every service that would break, it tries the fixes it has evidence for. Being
+related isn't being interchangeable, so a move is only offered onto a successor a decision names outright
+(`(identity)-[:REPLACES]->(sso-legacy)`, from ADR-005) or onto a system at least three others really moved to.
+Switching a service off too is offered when no other system relies on it, and its own customers still count against
+it. Every candidate plan is its own `GRAPH.COPY` with the plan applied, scored exactly like a what-if. A beam search
+keeps the four safest plans at each depth.
 
 ```python
 g = f"scratch:{t}:{secrets.token_hex(4)}"
@@ -172,13 +176,16 @@ finally:
     db.delete(g)
 ```
 
-On Corvane it explores 16 candidate companies and comes back with three steps: move invoice-render onto identity,
-switch reports-legacy off as well, then switch off sso-legacy. The simulated risk goes from 100 to 0.
+On Corvane it comes back with three steps: move invoice-render onto identity, move reports-legacy onto identity, then
+switch off sso-legacy. The first step waits on two open tickets, BILL-207 and IDN-58, the identity endpoint BILL-207 is
+blocked by, and the plan says so. Six candidates are turned down: secrets-vault, flag-eval and edge-gateway are run by
+the same team as sso-legacy, but nothing establishes that any of them can do what sso-legacy does. Switching
+reports-legacy off instead would leave its three customers without it, so that branch scores 20, not 0.
 
 ![The safe path: every company explored, the winning branch lit up](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/safepath.jpg)
 
-That 0 needs reading carefully, and the opening of this post is the reason. It means no risk that Orion's model can
-see in what the graph records. It doesn't mean the migration is guaranteed to be safe. If there's another
+The panel's heading is "No modeled problems after these steps", not "safe", and that 0 needs reading carefully. The
+opening of this post is the reason. It means no risk that Orion's model can see in what the graph records. It doesn't mean the migration is guaranteed to be safe. If there's another
 invoice-render out there, depending on something nobody wrote down, the plan won't know about it either. What the plan
 does give you is an order of operations and a list of teams to ask, which is exactly the conversation that didn't
 happen before ADR-011.
@@ -219,8 +226,16 @@ plus forking universes. Every read tool goes through `GRAPH.RO_QUERY`, so a conf
 
 Every sentence that states a fact has to come with a typed claim: `breaks`, `knows`, `depends_on`, `count` and a few
 more. A separate **Verifier** runs each claim as a query and compares the exact set or number. "invoice-render and
-reports-legacy stop working" is a `breaks` claim with two services, checked against the universe. A name that matches
-nothing in the graph is **unsupported**, never "not true": Orion doesn't know it's false, it just can't find it.
+reports-legacy stop working" is a `breaks` claim with two services, checked against the universe, and the sentence's
+wording is held to it too: if it says a system stops when the graph says it only slows down, the point is only partly
+checked. A name that matches nothing in the graph is **unsupported**, never "not true": Orion doesn't know it's false,
+it just can't find it.
+
+The summary at the top of an answer isn't a claim of its own, so it's held to the claims: every person, system,
+customer and decision it names, every number it gives (with the word it counts, so seven customers don't back "seven
+systems") and every effect it states has to be in a point the graph verified. Under the headline the answer says
+either that it is, or exactly what isn't. "Verified" means this sentence matches this computation on this graph, which
+is narrower than "true", and that's the promise I can defend.
 
 The answer and its claims are then stored in the record. Each claim keeps the uids of the facts its evidence rested
 on, and gets a `READ` edge to every node it looked at:
@@ -263,8 +278,11 @@ tools, and once given the 15 records that full-text search ranks highest for the
 assistant would see the company.
 
 **The grading.** No model grades anything. The names in each answer are resolved against the graph and compared with
-the true set exactly; a name that isn't in the truth counts against the answer. Number questions take the first number given,
-and decision questions take the status word.
+the true set exactly; a name that isn't in the truth counts against the answer. Number questions take the first number
+given, and decision questions take the status word. Two weaknesses of that, said plainly: a made-up name that matches
+nothing in the graph is never counted, so the made-up-name figures understate both sides; and the true answers to the
+dependency questions come from the same impact walk Orion uses, so a bug there would be shared. That walk is now
+checked separately against brute force (more on that below).
 
 **The results**, over three runs:
 
@@ -300,6 +318,21 @@ and on the Proof screen. `uv run python -m orion.evals` reruns it in a few minut
 
 ## What broke while building it
 
+**My impact walk had a real bug, and a reviewer found it.** The walk keeps the worst effect at each service. But if a
+service was reached through an async dependency first, and a fully synchronous path to it turned up one hop later, the
+second path was skipped because the service was already in the frontier. So it showed as "slows down" when it should
+break, along with everything depending on it. My equivalence test couldn't catch it, because both sides of that test
+call the same walk. The fix walks a service again whenever a more severe path turns up (severity only rises, so it
+still ends on cycles), and a new test checks the walk against brute force over every simple path on 300 random graphs.
+None of Corvane's 25 services has that shape, so no number in this post moved, but the engine was wrong until then.
+
+**Giving every visitor their own company, on 100 MB.** The demo's best moment changes the company: a message closes a
+fact and an answer goes stale. On one shared company the second visitor found the story already told. So each browser
+now gets its own copy, made the way Orion makes everything, by `GRAPH.COPY` of each graph. The free cloud instance
+holds 100 MB and a copy in use takes up to about 40, which I found out by running it out of memory. Copies are now made
+only when they fit, idle ones are evicted first, and the company they're copied from is read-only over the API, so it
+can never be dirtied.
+
 **FalkorDB Cloud only lets you run graph commands.** Locally I'd been keeping small bits of state in plain Redis keys:
 tenant clocks, version counters, a cache, locks around universes. On the cloud instance those commands are refused. I
 moved all of it into an `orion:meta` graph: `KV` nodes with an optional expiry, and `Lock` nodes taken with a single
@@ -310,7 +343,7 @@ two workers can never both win it.
 **`GRAPH.COPY` on the cloud forks the server process, and refuses a second fork while one runs.** The safe path was
 making its copies in parallel, which worked fine on my desktop and failed on the deployed instance. Copies now take
 turns (the scoring on each copy still runs side by side), and a copy refused mid-fork is retried. Taking turns, plus
-network round trips, is why the same search takes ten seconds there and one on my desktop.
+network round trips, is why the same search takes seven seconds there and under half a second on my desktop.
 
 ## Try changing a company without breaking one
 

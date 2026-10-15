@@ -175,7 +175,7 @@ uv run orion departures                                        # everyone ranked
 uv run orion approve u1 person:priya-raman                     # approve as Priya (Platform)
 uv run orion message "invoice-render no longer calls sso-legacy" --author person:tomasz-nowak
 uv run orion repo FalkorDB/falkordb-py                         # load a public repository (needs GITHUB_TOKEN)
-uv run pytest -q                                               # 62 tests, incl. the equivalence property test
+uv run pytest -q                                               # 83 tests, incl. the equivalence property test
 ```
 
 ### Codebases (any public GitHub repository)
@@ -216,6 +216,11 @@ wave its own through.
 | The safe path and hindsight | The plan for sso-legacy moves invoice-render onto identity first and ends at risk 0; INC-311's blind spot is the invoice-render dependency, written down by Tomasz six days after the outage (`tests/test_planner.py`) |
 | Answers against a baseline | 29 graph-generated questions, Orion against the same model reading the records (`orion/evals.py`, results in `orion/eval_results.json`) |
 | Codebases | Imports across Python, TypeScript, Go, Rust, C and Java; CODEOWNERS; module layout; co-changes (`tests/test_repo.py`, offline) |
+| The impact walk itself | Against brute force over every simple path, on 300 random graphs and every row order, with a stand-in database so it shares nothing with what it checks (`tests/test_impact.py`) |
+| What an answer may say | A sentence that overstates an effect is partly checked; the summary names, counts and effects only what verified points do (`tests/test_summary.py`) |
+| The safe path's limits | A candidate with no evidence is turned down; customers of what is switched off count; a move carries the tickets it waits on (`tests/test_planner.py`) |
+| Approvals and workers | An owner change with the same blast radius still needs the new owner; a busy worker keeps its task, a silent one loses it and can't record over the next (`tests/test_universe.py`, `tests/test_board.py`) |
+| Visitors' copies | The story plays out in a copy without touching the template or another copy; eviction under memory pressure; the template is read-only (`tests/test_demo.py`) |
 
 ## Data
 
