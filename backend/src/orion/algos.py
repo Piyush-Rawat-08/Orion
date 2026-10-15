@@ -22,7 +22,7 @@ RETURN componentId AS c, node.uid AS uid, node.name AS name
 """
 
 BETWEENNESS = """
-CALL algo.betweenness({nodeLabels: ['Person'], relationshipTypes: ['COLLABORATES']})
+CALL algo.betweenness({nodeLabels: ['Person'], relationshipTypes: ['COLLABORATES'], samplingSize: 10000, samplingSeed: 7})
 YIELD node, score
 RETURN node.uid AS uid, node.name AS name, score
 ORDER BY score DESC, uid
