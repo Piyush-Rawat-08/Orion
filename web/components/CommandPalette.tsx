@@ -1,106 +1,181 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useGalaxy } from "@/lib/hooks";
-import { teamColor } from "@/lib/palette";
-import { useCosmos } from "./cosmos/CosmosProvider";
-import { EASE } from "./ui";
+import { useApp } from "./AppProvider";
+import { NAV } from "./nav";
+import { Kbd } from "./ui";
+import { EASE } from "./motion";
+import { setTheme, useTheme } from "./theme";
 
-type Item = { id: string; label: string; kind: string; team: string | null; hint: string };
+const STARTERS = [
+  "If we switch off sso-legacy next quarter, what breaks, who needs to be involved, and have we tried this before?",
+  "Who actually knows the ledger?",
+  "Which teams on paper don't match how people actually work?",
+  "What did Helio Robotics ask for, and was it resolved?",
+];
 
-/** ⌘K: find any person, service, team or customer and fly to it. */
-export function CommandPalette() {
+type Item = { id: string; group: string; label: string; hint?: string; run: () => void; disabled?: boolean };
+
+export default function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
-  const path = usePathname();
-  const { engine } = useCosmos();
-  const { data: g } = useGalaxy();
-  const [open, setOpen] = useState(false);
+  const { ask, llm } = useApp();
+  const theme = useTheme();
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
 
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen((o) => !o);
-      }
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, []);
+  // focus moves into the palette when it opens and back to where it was when it closes
+  const returnTo = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (open) {
+      returnTo.current = document.activeElement as HTMLElement | null;
       setQ("");
       setI(0);
-      setTimeout(() => input.current?.focus(), 30);
+      setTimeout(() => input.current?.focus(), 10);
+    } else if (returnTo.current) {
+      returnTo.current.focus?.();
+      returnTo.current = null;
     }
   }, [open]);
 
-  const items = useMemo<Item[]>(() => {
-    if (!g) return [];
-    return [
-      ...g.services.map((s) => ({ id: s.id, label: s.label, kind: "service", team: s.team, hint: `tier ${s.tier} · ${s.summary}` })),
-      ...g.people.map((p) => ({ id: p.id, label: p.label, kind: "person", team: p.team, hint: p.role })),
-      ...g.teams.map((t) => ({ id: t.id, label: t.label, kind: "team", team: t.id, hint: t.mission })),
-      ...g.customers.map((c) => ({ id: c.id, label: c.label, kind: "customer", team: null, hint: `${c.tier} · ${c.industry}` })),
-    ];
-  }, [g]);
-
-  const hits = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return items.filter((x) => x.kind === "service").slice(0, 8);
-    return items
-      .map((x) => ({ x, score: x.label.toLowerCase().startsWith(s) ? 0 : x.label.toLowerCase().includes(s) ? 1 : x.hint.toLowerCase().includes(s) ? 2 : 9 }))
-      .filter((r) => r.score < 9)
-      .sort((a, b) => a.score - b.score || a.x.label.localeCompare(b.x.label))
-      .slice(0, 9)
-      .map((r) => r.x);
-  }, [q, items]);
-
-  function go(it: Item) {
-    setOpen(false);
-    const select = () => {
-      engine?.select(it.id);
-      engine?.setKnowsFor(it.id);
-      engine?.setAutoRotate(false);
-      window.dispatchEvent(new CustomEvent("orion:select", { detail: it.id }));
+  const items = useMemo(() => {
+    const go = (href: string) => () => {
+      router.push(href);
+      onClose();
     };
-    if (path !== "/sky") {
-      router.push("/sky");
-      setTimeout(select, 900);
-    } else select();
-  }
+    const askIt = (text: string) => () => {
+      router.push("/");
+      ask(text);
+      onClose();
+    };
+    const needle = q.trim().toLowerCase();
+    const out: Item[] = [];
+    if (needle.length > 2)
+      out.push({ id: "ask", group: "Ask", label: q.trim(), hint: llm === false ? "needs the AI service" : "Ask", run: askIt(q.trim()), disabled: llm === false });
+    for (const n of NAV)
+      if (!needle || n.label.toLowerCase().includes(needle) || n.sub.toLowerCase().includes(needle))
+        out.push({ id: n.href, group: "Pages", label: n.label, hint: `Alt ${n.key}`, run: go(n.href) });
+    const other = theme === "dark" ? "light" : "dark";
+    if (!needle || `theme ${other} mode appearance`.includes(needle))
+      out.push({
+        id: "theme",
+        group: "Appearance",
+        label: other === "light" ? "Switch to the light theme" : "Switch to the dark theme",
+        run: () => {
+          onClose();
+          setTheme(other);
+        },
+      });
+    for (const s of STARTERS)
+      if (!needle || s.toLowerCase().includes(needle))
+        out.push({ id: s, group: "Questions", label: s, run: askIt(s), disabled: llm === false });
+    return out;
+  }, [q, router, ask, onClose, llm, theme]);
 
+  useEffect(() => setI(0), [q]);
+  useEffect(() => {
+    list.current?.querySelector(`[data-i="${i}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [i]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Tab") {
+      // a focus trap: the list is walked with the arrow keys, so Tab stays in the search field
+      e.preventDefault();
+      input.current?.focus();
+    } else if (e.key === "Escape") onClose();
+    else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setI((v) => Math.min(items.length - 1, v + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setI((v) => Math.max(0, v - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const it = items[i];
+      if (it && !it.disabled) it.run();
+    }
+  };
+
+  let lastGroup = "";
   return (
     <AnimatePresence>
       {open && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}
-                    className="fixed inset-0 z-50 flex items-start justify-center bg-void/60 px-4 pt-[16vh] backdrop-blur-sm" onClick={() => setOpen(false)}>
-          <motion.div initial={{ y: -10, scale: 0.98 }} animate={{ y: 0, scale: 1 }} transition={{ duration: 0.25, ease: EASE }}
-                      className="panel reticle w-full max-w-[560px] overflow-hidden rounded-xl" onClick={(e) => e.stopPropagation()}>
-            <input ref={input} value={q} onChange={(e) => { setQ(e.target.value); setI(0); }}
-                   onKeyDown={(e) => {
-                     if (e.key === "ArrowDown") { e.preventDefault(); setI((x) => Math.min(hits.length - 1, x + 1)); }
-                     if (e.key === "ArrowUp") { e.preventDefault(); setI((x) => Math.max(0, x - 1)); }
-                     if (e.key === "Enter" && hits[i]) go(hits[i]);
-                   }}
-                   placeholder="Find a person, service, team or customer…"
-                   className="w-full border-b border-white/[0.07] bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-faint" />
-            <div className="max-h-[50vh] overflow-y-auto p-1.5">
-              {hits.map((h, k) => (
-                <button key={h.id} onMouseEnter={() => setI(k)} onClick={() => go(h)}
-                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${k === i ? "bg-white/[0.07]" : ""}`}>
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: h.kind === "customer" ? "#d9d2c3" : teamColor(h.team) }} />
-                  <span className={`text-[13px] ${h.kind === "service" ? "mono" : ""}`}>{h.label}</span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-faint">{h.hint}</span>
-                  <span className="mono text-[10px] text-faint">{h.kind}</span>
-                </button>
-              ))}
-              {!hits.length && <div className="px-3 py-3 text-[12px] text-faint">Nothing by that name.</div>}
+        <motion.div
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-scrim px-4 pt-[14vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+          onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Go to a page or ask"
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.985 }}
+            transition={{ duration: 0.16, ease: EASE }}
+            className="w-full max-w-[620px] overflow-hidden rounded-xl border border-rule-strong bg-panel shadow-modal"
+            onKeyDown={onKey}
+          >
+            <div className="flex items-center gap-3 border-b border-rule px-4">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-faint" aria-hidden>
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="M10.5 10.5L14 14" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={input}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Go to a page, or ask anything about the company…"
+                className="h-[54px] w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-faint focus-visible:outline-none"
+                aria-label="Search or ask"
+                aria-activedescendant={items[i] ? `cmd-${i}` : undefined}
+              />
+              <Kbd>esc</Kbd>
+            </div>
+            <ul ref={list} role="listbox" className="max-h-[52vh] overflow-y-auto p-2">
+              {items.map((it, n) => {
+                const header = it.group !== lastGroup;
+                lastGroup = it.group;
+                return (
+                  <li key={it.id} role="presentation">
+                    {header && <p className="px-3 pb-1 pt-2.5 text-[11px] font-medium text-faint">{it.group}</p>}
+                    <button
+                      id={`cmd-${n}`}
+                      data-i={n}
+                      role="option"
+                      aria-selected={n === i}
+                      type="button"
+                      disabled={it.disabled}
+                      onMouseMove={() => setI(n)}
+                      onClick={() => !it.disabled && it.run()}
+                      className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors duration-150 disabled:opacity-40 ${
+                        n === i ? "bg-raised text-ink" : "text-muted"
+                      }`}
+                    >
+                      {n === i && <span className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-ember" aria-hidden />}
+                      <span className="min-w-0 flex-1 truncate">{it.label}</span>
+                      {it.hint && <span className="mono shrink-0 text-[11px] text-faint">{it.hint}</span>}
+                    </button>
+                  </li>
+                );
+              })}
+              {!items.length && <li className="px-3 py-6 text-center text-sm text-muted">Nothing matches.</li>}
+            </ul>
+            <div className="flex items-center gap-4 border-t border-rule px-4 py-2 text-[11px] text-faint">
+              <span className="flex items-center gap-1">
+                <Kbd>↑</Kbd>
+                <Kbd>↓</Kbd> move
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>↵</Kbd> open
+              </span>
+              <span className="ml-auto">Alt + 1–8 jumps between pages</span>
             </div>
           </motion.div>
         </motion.div>

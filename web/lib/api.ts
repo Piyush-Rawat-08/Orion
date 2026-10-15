@@ -1,86 +1,129 @@
-// The Orion API. The token is the signed persona from /login; streams are server-sent events over a POST,
-// read with fetch because EventSource can only GET.
+// Thin client for the Orion backend. JSON endpoints use fetch; streaming endpoints use
+// POST + ReadableStream (see sse.ts), because EventSource cannot send a body.
+//
+// Identity: the backend derives the user from a signed token, never from a request field. The client logs in
+// as the current persona (repo tenants: "viewer") once per tenant and persona, keeps the token, sends it on every
+// request, and logs in again once if a token is refused.
 
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8100";
-export const TENANT = process.env.NEXT_PUBLIC_TENANT ?? "corvane";
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8100").replace(/\/$/, "");
+export const TENANT = process.env.NEXT_PUBLIC_TENANT || "corvane";
 
-let token: string | null = null;
-
-export function setToken(t: string | null) {
-  token = t;
-}
+export const tenantPath = (path: string) => `/api/${TENANT}${path.startsWith("/") ? path : `/${path}`}`;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    /** the response's `detail` when it is an object (409 rebase_needed / blocked carry their diffs here) */
+    public body?: unknown,
+  ) {
     super(message);
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}/api/${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init.headers ?? {}),
-    },
+let currentUser = "person:priya-raman";
+const tokens = new Map<string, string>();
+
+/** The persona the UI acts as; requests from now on carry this persona's token. */
+export function setApiUser(user: string) {
+  currentUser = user;
+}
+
+const PUBLIC = new Set(["health", "tenants"]);
+
+function tenantOf(path: string): string | null {
+  if (!path.startsWith("/api/")) return TENANT;
+  const seg = path.slice(5).split(/[/?]/)[0];
+  if (PUBLIC.has(seg)) return null;
+  if (seg === "repos") return TENANT; // creating a repo tenant: any logged-in session will do
+  return decodeURIComponent(seg);
+}
+
+function personaFor(tenant: string) {
+  return tenant.startsWith("gh-") ? "viewer" : currentUser;
+}
+
+async function token(tenant: string, fresh = false, as?: string): Promise<string> {
+  const persona = as ?? personaFor(tenant);
+  const key = `orion.token.${tenant}.${persona}`;
+  if (!fresh) {
+    const mem = tokens.get(key);
+    if (mem) return mem;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        tokens.set(key, saved);
+        return saved;
+      }
+    } catch {
+      /* no storage: log in every page load */
+    }
+  }
+  const res = await fetch(`${API_URL}/api/${encodeURIComponent(tenant)}/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ user: persona }),
+    cache: "no-store",
   });
+  const body = await handle<{ token: string }>(res);
+  tokens.set(key, body.token);
+  try {
+    localStorage.setItem(key, body.token);
+  } catch {
+    /* ignore */
+  }
+  return body.token;
+}
+
+/** fetch with the caller's token; a refused token is replaced once. `as` sends one request as another persona
+ *  (the demo's "post a message as someone on the team"): the server still only believes the token. */
+export async function authFetch(path: string, init: RequestInit = {}, as?: string): Promise<Response> {
+  const url = path.startsWith("/api/") ? `${API_URL}${path}` : `${API_URL}${tenantPath(path)}`;
+  const tenant = tenantOf(path);
+  const go = async (fresh: boolean) => {
+    const headers = new Headers(init.headers);
+    if (tenant) headers.set("authorization", `Bearer ${await token(tenant, fresh, as)}`);
+    return fetch(url, { cache: "no-store", ...init, headers });
+  };
+  const res = await go(false);
+  return res.status === 401 && tenant ? go(true) : res;
+}
+
+async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
+    let body: unknown;
     try {
-      const body = await res.json();
-      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    } catch {}
-    throw new ApiError(res.status, detail);
+      const j = await res.json();
+      body = j.detail ?? j;
+      detail = typeof j.detail === "string" ? j.detail : (j.detail?.message ?? JSON.stringify(j.detail ?? j));
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, detail || `HTTP ${res.status}`, body);
   }
   return res.json() as Promise<T>;
 }
 
-export const get = <T,>(path: string) => request<T>(`${TENANT}/${path}`);
-export const post = <T,>(path: string, body: unknown = {}) =>
-  request<T>(`${TENANT}/${path}`, { method: "POST", body: JSON.stringify(body) });
-export const open = <T,>(path: string, init?: RequestInit) => request<T>(path, init);
-
-export type StreamEvent = { type: string; [k: string]: unknown };
-
-/** POST and read the reply as server-sent events, calling `on` for each. Resolves with the final result. */
-export async function stream(path: string, body: unknown, on: (e: StreamEvent) => void, signal?: AbortSignal) {
-  const res = await fetch(`${API}/api/${TENANT}/${path}`, {
-    method: "POST",
-    body: JSON.stringify(body),
-    signal,
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-  });
-  if (!res.ok || !res.body) {
-    let detail = res.statusText;
-    try {
-      detail = (await res.json()).detail;
-    } catch {}
-    throw new ApiError(res.status, detail);
-  }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-  let result: unknown = null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.search(/\r?\n\r?\n/)) >= 0) {
-      const chunk = buf.slice(0, i);
-      buf = buf.slice(i).replace(/^\r?\n\r?\n/, "");
-      const data = chunk
-        .split(/\r?\n/)
-        .filter((l) => l.startsWith("data:"))
-        .map((l) => l.slice(5).trimStart())
-        .join("\n");
-      if (!data) continue;
-      const e = JSON.parse(data) as StreamEvent;
-      if (e.type === "error") throw new ApiError(500, String(e.error));
-      if (e.type === "done") result = e.result;
-      on(e);
-    }
-  }
-  return result;
+/** GET a tenant-scoped path, e.g. get("/graph?asof=2026-07-01"). Absolute "/api/..." paths pass through. */
+export async function get<T>(path: string, init?: RequestInit): Promise<T> {
+  return handle<T>(await authFetch(path, init));
 }
+
+export async function post<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  return handle<T>(
+    await authFetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      ...init,
+    }),
+  );
+}
+
+export const q = (params: Record<string, string | number | undefined | null>) => {
+  const s = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") s.set(k, String(v));
+  const out = s.toString();
+  return out ? `?${out}` : "";
+};
