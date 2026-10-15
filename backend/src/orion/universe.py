@@ -165,6 +165,33 @@ def _since(asof: str, days: int) -> str:
     return (_date.fromisoformat(asof[:10]) - timedelta(days=days)).isoformat()
 
 
+def switched_off(db: dbm.DB, graph: str, base: str) -> list[str]:
+    """The services this change switches off: retired in the copy, running in what it was copied from."""
+    before = {r["uid"] for r in db.ro(base, "MATCH (s:Retired) RETURN s.uid AS uid")}
+    return [r["uid"] for r in db.ro(graph, "MATCH (s:Retired) RETURN s.uid AS uid") if r["uid"] not in before]
+
+
+def with_users_of(db: dbm.DB, base: str, customers: list[dict], services: list[str]) -> list[dict]:
+    """`customers` plus everyone who uses one of `services` directly (read in `base`, before the change). A service
+    switched off is lost to its own users even when nothing else relies on it; only current users count here, not
+    old tickets about it."""
+    if not services:
+        return customers
+    by = {c["uid"]: {**c, "services": list(c["services"]), "service_uids": list(c["service_uids"]), "uses": list(c["uses"])}
+          for c in customers}
+    for r in db.ro(base, """MATCH (c:Customer)-[:USES]->(s:Service) WHERE s.uid IN $s
+                            RETURN c.uid AS uid, c.name AS customer, c.tier AS tier, s.uid AS service_uid, s.name AS service
+                            ORDER BY customer, service""", {"s": services}):
+        c = by.setdefault(r["uid"], {"uid": r["uid"], "customer": r["customer"], "tier": r["tier"], "services": [],
+                                     "service_uids": [], "tickets": [], "uses": []})
+        if r["service_uid"] not in c["service_uids"]:
+            c["services"].append(r["service"])
+            c["service_uids"].append(r["service_uid"])
+        if r["service"] not in c["uses"]:
+            c["uses"].append(r["service"])
+    return sorted(by.values(), key=lambda c: c["customer"])
+
+
 def customers_affected(db: dbm.DB, graph: str, services: list[str], asof: str) -> list[dict]:
     if not services:
         return []
@@ -285,11 +312,14 @@ def diff(db: dbm.DB, t: str, uid: str) -> dict:
                        "kinds": x.kinds[::-1], "fact_uids": x.edges, "via_undeclared": x.undeclared, "evidence": eid})
 
     effect_of = {b["uid"]: b["effect"] for b in broken}
-    customers = customers_affected(db, ug, [b["uid"] for b in broken], asof)
+    off = switched_off(db, ug, bg)
+    effect_of |= {x: "break" for x in off}
+    customers = with_users_of(db, bg, customers_affected(db, ug, [b["uid"] for b in broken], asof), off)
     if customers:
         ev.append(evidence(f"{uid}.customers", ug, "customers_affected",
-                           {"services": [b["uid"] for b in broken], "since": _since(asof, CUSTOMER_WINDOW_DAYS)},
-                           [c["uid"] for c in customers], [], asof, f"customers tied to the services that break in what-if {uid}"))
+                           {"services": [b["uid"] for b in broken] + off, "since": _since(asof, CUSTOMER_WINDOW_DAYS)},
+                           [c["uid"] for c in customers], [], asof,
+                           f"customers tied to the services that break or are switched off in what-if {uid}"))
 
     # services nobody would know
     before = {r["uid"]: r for r in db.ro(bg, cypher("knowledge_orphans"))}

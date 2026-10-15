@@ -193,7 +193,7 @@ function Multiverse() {
       )}
       <div className="ml-auto flex items-center gap-2">
         {d && d.diff && d.diff.broken.length > 0 && d.ops.some((o) => o.op === "deprecate_service") && (
-          <button type="button" className="btn btn-primary" onClick={() => setPlanning(true)} title="Search parallel companies for the order of steps that breaks nothing">
+          <button type="button" className="btn btn-primary" onClick={() => setPlanning(true)} title="Search parallel companies for the order of steps with the least modeled risk">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
               <circle cx="3" cy="8" r="1.6" />
               <circle cx="13" cy="3.5" r="1.6" />

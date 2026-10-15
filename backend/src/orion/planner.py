@@ -25,6 +25,13 @@ from orion import universe as uv
 from orion.queries import cypher
 
 OPEN = "9999-12-31"
+# what every plan rests on, said with it
+ASSUMPTIONS = [
+    "Only dependencies in the records are modeled; one nobody wrote down (like invoice-render's, before INC-311) is invisible here.",
+    "A move is offered only onto a declared successor or where other systems already made the same move; Orion doesn't "
+    "check that the new system offers every capability the old one did.",
+    "The plan changes Orion's model of the company once approved; it deploys nothing.",
+]
 BEAM = 4
 MAX_DEPTH = 4
 PARALLEL = 6
@@ -56,14 +63,16 @@ def assess(db: dbm.DB, t: str, ops: list[dict], snap: dict | None = None, info: 
         broken = [{"uid": x.uid, "service": x.name, "because_of": names.get(x.root, x.root), "hops": x.hops,
                    "tier": info["tier"].get(x.uid, x.tier or 3), "effect": x.effect, "fact_uids": x.edges}
                   for x in sorted(reach.values(), key=lambda r: (r.hops, r.name))]
-        customers = uv.customers_affected(db, g, [b["uid"] for b in broken], snap["asof"])
+        off = [o["service"] for o in resolved if o["op"] in ("deprecate_service", "outage")]
+        customers = uv.with_users_of(db, base, uv.customers_affected(db, g, [b["uid"] for b in broken], snap["asof"]), off)
         orphans = [{"uid": r["uid"], "service": r["name"], "tier": r["tier"] or 3}
                    for r in db.ro(g, cypher("knowledge_orphans")) if r["uid"] not in info["orphans"]]
         stranded = [{"services": sorted(r["names"]), "uids": r["uids"]}
                     for r in db.ro(g, cypher("stranded_clusters")) if set(r["uids"]) - info["stranded"]]
     finally:
         db.delete(g)
-    risk = uv.score_risk(broken, orphans, [], [], [], customers, stranded, {b["uid"]: b["effect"] for b in broken})
+    risk = uv.score_risk(broken, orphans, [], [], [], customers, stranded,
+                         {b["uid"]: b["effect"] for b in broken} | {x: "break" for x in off})
     return {"risk": risk["score"], "level": risk["level"], "terms": risk["terms"], "broken": broken,
             "customers": [c["customer"] for c in customers], "orphans": [o["service"] for o in orphans],
             "gaps": uv.migration_gaps(resolved), "ops": resolved, "ms": round((time.perf_counter() - t0) * 1000)}
@@ -71,17 +80,22 @@ def assess(db: dbm.DB, t: str, ops: list[dict], snap: dict | None = None, info: 
 
 # ---------------------------------------------------------------- what a dependent could move to
 
-def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid: set[str], asof: str | None = None) -> list[dict]:
-    """Systems `dependent` could rely on instead of `retired`, best first, each with the reason it was picked: a
-    decision that names both, systems that had already moved to it from `retired` (by `asof`, never later), or the
-    same owning team."""
+def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid: set[str], asof: str | None = None) -> dict:
+    """What `dependent` could rely on instead of `retired`. Being related isn't being interchangeable, so a candidate
+    is only offered with evidence that it can take over: a decision that names it the successor ((x)-[:REPLACES]->
+    (retired)), or systems that already moved to it from `retired` (by `asof`, never later). Candidates with only
+    weaker ties (named in the same decision, run by the same team) come back as rejected, with the reason.
+    {accepted: [...], rejected: [...]}"""
     org = dbm.org(t)
     asof = asof or dbm.clock(db, t)
     votes: dict[str, dict] = {}
 
     def entry(uid: str) -> dict:
-        return votes.setdefault(uid, {"decisions": [], "movers": [], "team": None})
+        return votes.setdefault(uid, {"successor": [], "decisions": [], "movers": [], "team": None})
 
+    for r in db.ro(g, """MATCH (x:Service)-[p:REPLACES]->(:Service {uid: $r}) RETURN x.uid AS uid, p.decision AS key""",
+                   {"r": retired}):
+        entry(r["uid"])["successor"].append(r["key"])
     for r in db.ro(g, """MATCH (d:Decision)-[:AFFECTS]->(:Service {uid: $r}) MATCH (d)-[:AFFECTS]->(x:Service)
                          WHERE x.uid <> $r RETURN DISTINCT x.uid AS uid, d.key AS key""", {"r": retired}):
         entry(r["uid"])["decisions"].append(r["key"])
@@ -95,41 +109,72 @@ def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid
                          MATCH (tm)-[o2:OWNS]->(x:Service) WHERE x.uid <> $r AND o2.declared = true
                          RETURN DISTINCT x.uid AS uid, tm.name AS team""", {"r": retired}):
         entry(r["uid"])["team"] = r["team"]
-    live = {r["uid"]: r["name"] for r in db.ro(g, "MATCH (s:Service) WHERE s.uid IN $u RETURN s.uid AS uid, s.name AS name",
-                                                  {"u": list(votes)})}
+    live = {r["uid"]: r["name"] for r in db.ro(g, "MATCH (s:Service) WHERE s.uid IN $u AND NOT s:Retired "
+                                                  "RETURN s.uid AS uid, s.name AS name", {"u": list(votes)})}
     rname = db.one(g, "MATCH (s {uid: $r}) RETURN s.name AS n", {"r": retired})
     rname = rname["n"] if rname else "it"
-    out = []
+    accepted, rejected = [], []
     for uid, v in votes.items():
         if uid not in live or uid == dependent or uid in avoid:
             continue
         why = []
-        if v["decisions"]:
-            why.append(f"named alongside {rname} in {', '.join(sorted(v['decisions']))}")
+        if v["successor"]:
+            why.append(f"{', '.join(sorted(v['successor']))} names it the successor to {rname}")
         if v["movers"]:
             m = sorted(v["movers"])
             why.append(f"{len(m)} {'system' if len(m) == 1 else 'systems'} already moved to it from {rname} "
                        f"({', '.join(m[:2])}{'…' if len(m) > 2 else ''})")
-        if v["team"] and not why:
-            why.append(f"also run by {v['team']}")
-        score = 3 * len(v["decisions"]) + 2 * min(3, len(v["movers"])) + (1 if v["team"] else 0)
-        out.append({"uid": uid, "name": live[uid], "why": why, "score": score})
-    return sorted(out, key=lambda x: (-x["score"], x["name"]))[:3]
+        if why:
+            score = 4 * len(v["successor"]) + 2 * min(3, len(v["movers"]))
+            accepted.append({"uid": uid, "name": live[uid], "why": why, "score": score,
+                             "evidence": "declared successor" if v["successor"] else "precedent"})
+        else:
+            ties = ([f"named alongside {rname} in {', '.join(sorted(v['decisions']))}"] if v["decisions"] else []) + \
+                   ([f"also run by {v['team']}"] if v["team"] else [])
+            rejected.append({"uid": uid, "name": live[uid],
+                             "why": f"{'; '.join(ties)}, but nothing establishes it can do what {rname} does"})
+    accepted = sorted(accepted, key=lambda x: (-x["score"], x["name"]))[:3]
+    return {"accepted": accepted, "rejected": sorted(rejected, key=lambda x: x["name"])[:3]}
+
+
+def prerequisites(db: dbm.DB, g: str, dependent: str, target: str) -> list[dict]:
+    """Open tickets to move `dependent` onto `target` (about the one and naming or about the other), and the open
+    tickets blocking those: what has to land before the move is real."""
+    rows = db.ro(g, """MATCH (k:Ticket)-[:ABOUT]->(:Service {uid: $s}) MATCH (x:Service {uid: $x})
+                       WHERE k.status <> 'done' AND (toLower(k.title) CONTAINS toLower(x.name) OR (k)-[:ABOUT]->(x))
+                       OPTIONAL MATCH (b:Ticket)-[:BLOCKS]->(k) WHERE b.status <> 'done'
+                       RETURN k.key AS key, k.title AS title, k.status AS status,
+                              collect(DISTINCT {key: b.key, title: b.title, status: b.status}) AS blockers""",
+                 {"s": dependent, "x": target})
+    out = []
+    for r in rows:
+        out.append({"key": r["key"], "title": r["title"], "status": r["status"]})
+        out += [{**b, "blocks": r["key"]} for b in r["blockers"] if b.get("key")]
+    return out
 
 
 def _options(db: dbm.DB, t: str, g: str, retired: str, target: dict, avoid: set[str], kind: str,
-             asof: str | None = None) -> list[dict]:
-    """The ways to stop `target` breaking: move it to each replacement, or switch it off too if nothing relies on it."""
+             asof: str | None = None) -> tuple[list[dict], list[dict]]:
+    """The ways to stop `target` breaking that have evidence behind them, and the candidates turned down."""
     opts = []
-    for x in replacements(db, t, g, retired, target["uid"], avoid, asof):
+    found = replacements(db, t, g, retired, target["uid"], avoid, asof)
+    for x in found["accepted"]:
         opts.append({"label": f"Move {target['service']} onto {x['name']}", "why": "; ".join(x["why"]),
+                     "evidence": x["evidence"], "prerequisites": prerequisites(db, g, target["uid"], x["uid"]),
                      "ops": [{"op": "add_dependency", "source": target["uid"], "target": x["uid"], "kind": kind},
                              {"op": "remove_dependency", "source": target["uid"], "target": retired}]})
-    dependents = db.one(g, "MATCH (:Service)-[:DEPENDS_ON]->(s:Service {uid: $s}) RETURN count(*) AS n", {"s": target["uid"]})["n"]
-    if not dependents and target["tier"] >= 2:
-        opts.append({"label": f"Switch {target['service']} off too", "why": "nothing relies on it",
-                     "ops": [{"op": "deprecate_service", "service": target["uid"]}]})
-    return opts
+    rejected = [{"label": f"Move {target['service']} onto {x['name']}", "why": x["why"]} for x in found["rejected"]]
+    row = db.one(g, """MATCH (s:Service {uid: $s}) OPTIONAL MATCH (d:Service)-[:DEPENDS_ON]->(s)
+                       OPTIONAL MATCH (c:Customer)-[:USES]->(s)
+                       RETURN count(DISTINCT d) AS dependents, collect(DISTINCT c.name) AS users""", {"s": target["uid"]})
+    if not row["dependents"] and target["tier"] >= 2:
+        users = sorted(row["users"])
+        why = "no other system relies on it" + (
+            f", but {len(users)} {'customer uses' if len(users) == 1 else 'customers use'} it ({', '.join(users[:3])})"
+            if users else "")
+        opts.append({"label": f"Switch {target['service']} off too", "why": why, "evidence": "switch off",
+                     "prerequisites": [], "ops": [{"op": "deprecate_service", "service": target["uid"]}]})
+    return opts, rejected
 
 
 # ---------------------------------------------------------------- the search
@@ -172,6 +217,7 @@ def plan(db: dbm.DB, t: str, goal: list[dict], emit=None, asof: str | None = Non
               "steps": [f["label"] for f in fixes]})
         return n
 
+    rejected: list[dict] = []
     root = node([], None, 0, title)
     frontier = [root]
     done: list[dict] = [root]
@@ -186,8 +232,12 @@ def plan(db: dbm.DB, t: str, goal: list[dict], emit=None, asof: str | None = Non
             target = sorted(direct, key=lambda b: (b["tier"], b["service"]))[0]
             rid = next(u for u, nm in names.items() if nm == target["because_of"])
             avoid = set(retired) | {b["uid"] for b in root["result"]["broken"]}
-            for opt in _options(db, t, g, rid, target, avoid, kinds.get(target["uid"]) or "sync", snap["asof"]):
-                jobs.append((st, opt))
+            opts, turned_down = _options(db, t, g, rid, target, avoid, kinds.get(target["uid"]) or "sync", snap["asof"])
+            jobs += [(st, opt) for opt in opts]
+            for x in turned_down:
+                if x["label"] not in {y["label"] for y in rejected}:
+                    rejected.append(x)
+                    emit({"type": "rejected", **x})
         if not jobs:
             break
         emit({"type": "status", "text": f"depth {depth}: forking {len(jobs)} parallel companies"})
@@ -205,12 +255,19 @@ def plan(db: dbm.DB, t: str, goal: list[dict], emit=None, asof: str | None = Non
     while cur:
         path.append(cur["id"])
         cur = by_id.get(cur["parent"]) if cur["parent"] else None
-    steps = [{"label": f["label"], "why": f["why"], "ops": opsm.named(f["ops"], opsm.names_of(db, g, f["ops"]))} for f in best["fixes"]]
-    steps.append({"label": title, "why": "the change you asked for, once nothing relies on it", "ops": opsm.named(goal, names)})
+    steps = [{"label": f["label"], "why": f["why"], "evidence": f.get("evidence"), "prerequisites": f.get("prerequisites", []),
+              "ops": opsm.named(f["ops"], opsm.names_of(db, g, f["ops"]))} for f in best["fixes"]]
+    steps.append({"label": title, "why": "the change you asked for, once the steps above are done", "evidence": None,
+                  "prerequisites": [], "ops": opsm.named(goal, names)})
+    waiting = [p for st in steps for p in st["prerequisites"]]
+    # what the result means: a 0 is "nothing Orion's model can see", never a guarantee
+    verdict = ("residual" if best["risk"] > 0 else "prerequisites" if waiting else "clear")
     # risk after each prefix of the plan, along the winning branch
     curve = [{"after": "nothing yet" if i == 0 else by_id[p]["label"], "risk": by_id[p]["risk"]}
              for i, p in enumerate(reversed(path))]
-    out = {"goal": title, "asof": snap["asof"], "mode": mode, "baseline": _public(root), "best": _public(best),
+    out = {"goal": title, "asof": snap["asof"], "mode": mode, "verdict": verdict, "rejected": rejected,
+           "prerequisites": waiting, "assumptions": ASSUMPTIONS,
+           "baseline": _public(root), "best": _public(best),
            "path": list(reversed(path)), "steps": steps, "curve": curve,
            "plan_ops": [o for f in best["fixes"] for o in opsm.named(f["ops"], opsm.names_of(db, g, f["ops"]))] + opsm.named(goal, names),
            "explored": len(done), "ms": round((time.perf_counter() - t0) * 1000),

@@ -37,3 +37,36 @@ def test_hindsight_finds_the_blind_spot_behind_inc_311(db, tenant):
     assert (spot["source"], spot["target"], spot["recorded_by"]) == ("invoice-render", "sso-legacy", "Tomasz Nowak")
     assert spot["after_incident_days"] == 6
     assert r["fix"]["label"] == "Move invoice-render onto identity" and r["fix_waiting"]["key"] == "BILL-207"
+
+
+def test_switching_off_a_system_its_customers_use_counts_them_even_when_no_system_relies_on_it(db, tenant):
+    from orion import universe as uv
+
+    off = [{"op": "deprecate_service", "service": "reports-legacy"}]
+    r = planner.assess(db, tenant, off)
+    assert r["broken"] == [] and {"Pinecrest Bank", "Mosaic Health", "Sable Analytics"} <= set(r["customers"])
+    assert r["risk"] > 0
+    fork = uv.fork(db, tenant, off, created_by="person:priya-raman")
+    assert fork["diff"]["risk"]["score"] == r["risk"]
+
+
+def test_a_candidate_with_no_evidence_it_can_take_over_is_rejected_not_planned(db, tenant):
+    r = planner.plan(db, tenant, SSO_OFF)
+    planned = {s["label"] for s in r["steps"]}
+    turned_down = {x["label"]: x["why"] for x in r["rejected"]}
+    assert "Move invoice-render onto secrets-vault" in turned_down
+    assert "nothing establishes" in turned_down["Move invoice-render onto secrets-vault"]
+    assert not planned & set(turned_down)
+    # every move in the plan says what makes it a replacement
+    assert all(s["evidence"] in ("declared successor", "precedent") for s in r["steps"] if s["label"].startswith("Move"))
+    # reports-legacy has customers, so it is moved, not switched off with them
+    assert "Switch reports-legacy off too" not in planned
+
+
+def test_a_move_carries_the_open_tickets_it_waits_on_and_the_verdict_says_so(db, tenant):
+    r = planner.plan(db, tenant, SSO_OFF)
+    move = next(s for s in r["steps"] if s["label"] == "Move invoice-render onto identity")
+    keys = {p["key"]: p for p in move["prerequisites"]}
+    assert set(keys) == {"BILL-207", "IDN-58"} and keys["IDN-58"]["blocks"] == "BILL-207"
+    assert r["best"]["risk"] == 0 and r["verdict"] == "prerequisites"
+    assert r["assumptions"]

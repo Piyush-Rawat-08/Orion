@@ -483,8 +483,10 @@ def fork_scenario(ctx: ToolContext, ops: list[dict], title: str | None = None, k
 
 
 def safe_path(ctx: ToolContext, ops: list[dict]) -> dict:
-    """How to make a change without breaking anything: parallel companies are searched for the preparation (move
-    each system that relies on what is switched off onto a replacement, or switch it off too) that brings risk down."""
+    """How to make a change with the least modeled risk: parallel companies are searched for the preparation (move
+    each system that relies on what is switched off onto a declared successor or where others already moved, or
+    switch it off too) that brings risk down. A risk of 0 means nothing the model can see, not a guarantee; say the
+    verdict, the open prerequisites and the rejected candidates as they come back."""
     from orion import planner
 
     r = planner.plan(ctx.db, ctx.tenant, ops)
@@ -494,7 +496,13 @@ def safe_path(ctx: ToolContext, ops: list[dict]) -> dict:
                            text="beam search over GRAPH.COPY forks of today's company; each scored like a what-if")
     return {"goal": r["goal"], "explored": r["explored"], "ms": r["ms"], "risk_before": r["baseline"]["risk"],
             "risk_after": r["best"]["risk"], "still_breaks": r["best"]["broken"],
-            "steps": [{"step": i + 1, "do": s["label"], "why": s["why"]} for i, s in enumerate(r["steps"])],
+            "verdict": {"clear": "no modeled problems after these steps",
+                        "prerequisites": "no modeled problems once the open prerequisites land",
+                        "residual": "no plan found that avoids every modeled problem"}[r["verdict"]],
+            "steps": [{"step": i + 1, "do": s["label"], "why": s["why"],
+                       "waits_on": [f"{p['key']} ({p['status']})" for p in s.get("prerequisites", [])]}
+                      for i, s in enumerate(r["steps"])],
+            "rejected": [f"{x['label']}: {x['why']}" for x in r["rejected"]], "assumptions": r["assumptions"],
             "plan_ops": r["plan_ops"], "evidence": [eid]}
 
 

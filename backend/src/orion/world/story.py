@@ -60,12 +60,14 @@ def decisions() -> list[dict]:
          ("ADR-011", "reverses"),
          "Retiring sso-legacy took down invoice rendering (INC-311): invoice-render calls it for its signing token."),
     ]
+    # the successors a decision names outright: what the planner may move a dependent onto without further proof
+    successors = {"ADR-005": [("identity", "sso-legacy")], "ADR-008": [("stream-hub", "event-bus")]}
     out = []
     for key, at, title, status, team, by, affects, evidence, sup, summary in rows:
         out.append({"uid": "dec:" + key.lower(), "key": key, "title": title, "status": status, "at": at,
                     "team": "team:" + team, "decided_by": [_p(n) for n in by], "affects": [_s(s) for s in affects],
                     "evidence": evidence, "supersedes": ("dec:" + sup[0].lower(), sup[1]) if sup else None,
-                    "summary": summary})
+                    "summary": summary, "replaces": [(_s(a), _s(b)) for a, b in successors.get(key, [])]})
     return out
 
 

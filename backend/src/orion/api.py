@@ -566,7 +566,7 @@ class PlanBody(BaseModel):
 
 @app.post("/api/{tenant}/plan")
 async def plan(tenant: str, body: PlanBody, request: Request, s: Session = Auth):
-    """The safe path: search parallel companies for the preparation that makes a change break nothing.
+    """The safe path: search parallel companies for the preparation that leaves a change with the least modeled risk.
     SSE: status / universe (one per company explored) / best / done."""
     known(tenant)
     limit(request, bucket="fork")

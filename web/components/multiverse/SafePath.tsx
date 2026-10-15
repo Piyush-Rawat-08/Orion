@@ -1,7 +1,7 @@
 "use client";
 
-// The safe path: Orion searches parallel copies of the company for the preparation that lets a change break
-// nothing. Each company it explores arrives over the stream and takes its place in a tree (one column per step of
+// The safe path: Orion searches parallel copies of the company for the preparation that leaves a change with no
+// modeled problems. Each company it explores arrives over the stream and takes its place in a tree (one column per step of
 // preparation, coloured by its risk); when the search ends, the winning branch lights up and the plan reads out
 // beside it, with the risk falling step by step. One click sends the plan to the teams as a proposal.
 
@@ -30,13 +30,25 @@ export interface PlanNode {
   steps: string[];
 }
 
+export interface Prerequisite {
+  key: string;
+  title: string;
+  status: string;
+  blocks?: string;
+}
+
 export interface PlanResult {
   goal: string;
   asof: string;
+  /** clear: nothing modeled is left; prerequisites: once the open tickets land; residual: nothing found reaches 0 */
+  verdict: "clear" | "prerequisites" | "residual";
+  rejected: { label: string; why: string }[];
+  prerequisites: Prerequisite[];
+  assumptions: string[];
   baseline: PlanNode;
   best: PlanNode;
   path: string[];
-  steps: { label: string; why: string; ops: Record<string, string>[] }[];
+  steps: { label: string; why: string; evidence?: string | null; prerequisites?: Prerequisite[]; ops: Record<string, string>[] }[];
   curve: { after: string; risk: number }[];
   plan_ops: Record<string, string>[];
   explored: number;
@@ -283,20 +295,24 @@ export default function SafePath({
           <AnimatePresence mode="wait">
             {!result ? (
               <motion.div key="wait" exit={{ opacity: 0 }} className="space-y-3">
-                <h3 className="heading text-[20px] leading-tight">Looking for the order that breaks nothing</h3>
+                <h3 className="heading text-[20px] leading-tight">Looking for the safest order</h3>
                 <p className="text-[13px] leading-relaxed text-muted">
-                  For every system that would stop working, Orion tries the ways out: move it onto something that can
-                  replace what is going away, or switch it off too if nothing relies on it. Each try is a full copy of the
-                  company, scored the same way as a what-if. The safest few go on to the next step.
+                  For every system that would stop working, Orion tries the ways out it has evidence for: move it onto a
+                  declared successor or where other systems already moved, or switch it off too if no system relies on
+                  it. Each try is a full copy of the company, scored the same way as a what-if. The safest few go on.
                 </p>
               </motion.div>
             ) : (
               <motion.div key="plan" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: EASE }}>
                 <h3 className="heading text-[22px] leading-tight">
-                  {result.best.risk === 0 ? "A way to do it that breaks nothing" : `The safest way found: risk ${result.best.risk}`}
+                  {result.verdict === "residual"
+                    ? `No plan avoids every modeled problem: risk ${result.best.risk} at best`
+                    : "No modeled problems after these steps"}
                 </h3>
-                <p className="mt-1.5 text-[13px] text-muted">
+                <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
                   {result.steps.length - 1} {result.steps.length - 1 === 1 ? "step" : "steps"} of preparation, then the change itself.
+                  {result.verdict === "prerequisites" &&
+                    ` ${result.prerequisites.length} open ${result.prerequisites.length === 1 ? "ticket has" : "tickets have"} to land first.`}
                 </p>
                 <RiskCurve curve={result.curve} />
                 <ol className="mt-5 space-y-2">
@@ -315,16 +331,48 @@ export default function SafePath({
                         <div className="min-w-0">
                           <p className="text-[14px] font-medium leading-snug text-ink">{s.label}</p>
                           <p className="mt-0.5 text-[12px] leading-snug text-muted">{s.why}</p>
+                          {!!s.prerequisites?.length && (
+                            <ul className="mt-2 space-y-1 border-l border-warn/50 pl-2.5">
+                              {s.prerequisites.map((p) => (
+                                <li key={p.key} className="text-[12px] leading-snug text-muted">
+                                  <span className="mono text-warn">{p.key}</span> {p.status}
+                                  {p.blocks ? `, blocks ${p.blocks}` : ""}: {p.title}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       </div>
                     </motion.li>
                   ))}
                 </ol>
+                {result.rejected.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-[12px] font-medium text-ink">Turned down</p>
+                    <ul className="mt-1.5 space-y-1.5">
+                      {result.rejected.map((x) => (
+                        <li key={x.label} className="text-[12px] leading-snug text-muted">
+                          <span className="text-ink line-through decoration-faint">{x.label}</span>: {x.why}.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <details className="mt-4 text-[12px] leading-relaxed text-muted">
+                  <summary className="cursor-pointer text-faint hover:text-muted">What this rests on</summary>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                    {result.assumptions.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                </details>
                 <button type="button" className="btn btn-primary mt-5 h-9 w-full justify-center" onClick={send} disabled={sending}>
                   {sending ? <Spinner size={12} /> : null}
                   Send the plan for approval
                 </button>
-                <p className="mt-2 text-center text-[11px] text-faint">The teams it touches approve it, like any change. Nothing happens before.</p>
+                <p className="mt-2 text-center text-[11px] text-faint">
+                  The teams it touches approve it, like any change. Approving updates Orion&apos;s records; it deploys nothing.
+                </p>
               </motion.div>
             )}
           </AnimatePresence>

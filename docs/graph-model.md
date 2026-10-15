@@ -46,6 +46,7 @@ erDiagram
   Person }o--o{ Team : MEMBER_OF
   Team ||--o{ Service : OWNS
   Service }o--o{ Service : DEPENDS_ON
+  Service }o--o{ Service : REPLACES
   Customer }o--o{ Service : USES
   Person }o--o{ Project : WORKED_ON
   Project }o--o{ Service : TOUCHES
@@ -84,8 +85,9 @@ Everything that can stop being true is a relationship with:
 | `src` | The uid of the source it came from: the service catalog, the HR export, a message, or a `Decision` for merged changes |
 | `closed_by` | The source or decision that ended it |
 
-These are `MEMBER_OF`, `OWNS` (with `declared`), `DEPENDS_ON` (with `kind`: `sync`, `async` or `data`), `USES` and
-`WORKED_ON`. Nodes carry their own lifetimes: `Person.joined/left`, `Service.created/retired`, `Team.dissolved`.
+These are `MEMBER_OF`, `OWNS` (with `declared`), `DEPENDS_ON` (with `kind`: `sync`, `async` or `data`), `USES`,
+`WORKED_ON` and `REPLACES` (a successor a decision names outright, with that decision as `src`; the safe path only
+moves a dependent onto a declared successor or where other systems already made the same move). Nodes carry their own lifetimes: `Person.joined/left`, `Service.created/retired`, `Team.dissolved`.
 **Blame** is the fact's `src`; **checkout** is an epoch; **as known** filters on `recorded_at`.
 
 ### Derived relationships (computed per epoch)

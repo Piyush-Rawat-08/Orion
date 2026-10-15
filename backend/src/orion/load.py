@@ -111,6 +111,12 @@ def load(db: dbm.DB, w: World) -> dict:
         [{"d": d["uid"], "s": s} for d in w.decisions for s in d["affects"]])
     run("UNWIND $rows AS r MATCH (d:Decision {uid: r.d}), (s:Source {uid: r.s}) CREATE (d)-[:EVIDENCED_BY]->(s)",
         [{"d": d["uid"], "s": s} for d in w.decisions for s in d["evidence"]])
+    # a decision that names a successor: (new)-[:REPLACES]->(old), a fact from the day of the decision
+    run("""UNWIND $rows AS r MATCH (a:Service {uid: r.new}), (b:Service {uid: r.old})
+           CREATE (a)-[:REPLACES {uid: r.uid, decision: r.key, valid_from: r.at, valid_to: '9999-12-31',
+                                  recorded_at: r.at, src: r.d}]->(b)""",
+        [{"uid": f"rep:{d['key'].lower()}:{i}", "new": a, "old": b, "key": d["key"], "at": d["at"], "d": d["uid"]}
+         for d in w.decisions for i, (a, b) in enumerate(d.get("replaces", []))])
     run("""UNWIND $rows AS r MATCH (a:Decision {uid: r.a}), (b:Decision {uid: r.b})
            CREATE (a)-[:SUPERSEDES {how: r.how, at: r.at}]->(b)""",
         [{"a": d["uid"], "b": d["supersedes"][0], "how": d["supersedes"][1], "at": d["at"]}

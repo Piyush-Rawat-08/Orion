@@ -27,13 +27,17 @@ Orion is entered in **all three tracks**.
 
 ## What no one else will show you
 
-**The safe path.** A what-if says what a change breaks. Orion also says how to do it without breaking anything. Ask it
-to switch off sso-legacy and it searches parallel copies of the company: for every system that would stop working, it
-tries moving it onto a replacement (a system a decision names alongside it, or one others already moved to) or
-switching it off too when nothing relies on it. Each try is a full `GRAPH.COPY` of the company with the plan applied,
-scored like a what-if; a beam search keeps the safest few at each step. On Corvane it explores 16 companies (about a
-second on a local FalkorDB, about ten on the free cloud instance, where copies take turns) and comes back with: move invoice-render onto identity, switch reports-legacy off too, then switch off
-sso-legacy. Risk 100 → 0. One click sends the plan to the teams it touches. The Navigator has it as a tool too
+**The safe path.** A what-if says what a change breaks. Orion also looks for an order of steps that leaves no modeled
+problem, and says what it won't do. Ask it to switch off sso-legacy and it searches parallel copies of the company: for
+every system that would stop working, it tries moving it onto a replacement it has evidence for (a successor a decision
+names, `(identity)-[:REPLACES]->(sso-legacy)` from ADR-005, or a system others already moved to) or switching it off
+too when no system relies on it (its customers still count). Candidates that only share a team or a decision are turned
+down, with the reason. Each try is a full `GRAPH.COPY` of the company with the plan applied, scored like a what-if; a
+beam search keeps the safest few at each step. On Corvane it explores 16 companies (about a second on a local FalkorDB,
+about ten on the free cloud instance, where copies take turns) and comes back with: move invoice-render onto identity,
+which waits on BILL-207 and the IDN-58 endpoint it is blocked by, move reports-legacy onto identity, then switch off
+sso-legacy. Modeled risk 100 → 0 once those tickets land, which means nothing the model can see, not a guarantee; the
+plan lists what it rests on. One click sends it to the teams it touches. The Navigator has it as a tool too
 (`safe_path`).
 
 **Hindsight: would Orion have caught it?** Every incident is replayed against the decision that led to it. INC-311
