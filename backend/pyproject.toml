@@ -1,0 +1,32 @@
+[project]
+name = "orion"
+version = "0.1.0"
+description = "Rehearse a change to your company in a parallel universe before you make it. A company graph on FalkorDB."
+authors = [{ name = "Sumit Bhatt", email = "sumitbhatt9958@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.13.0",
+    "falkordb>=1.7.1",
+    "fastapi>=0.143.0",
+    "google-genai>=2.29.0",
+    "httpx>=0.28.0",
+    "mcp>=2.3.0",
+    "pydantic>=2.14.0",
+    "rich>=15.0.0",
+    "sse-starlette>=3.5.0",
+    "typer>=0.27.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+orion = "orion.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

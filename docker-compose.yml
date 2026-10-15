@@ -1,0 +1,15 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"
+      - "127.0.0.1:${FALKORDB_BROWSER_PORT:-3000}:3000"
+    environment:
+      # Algorithms on the full graph and epoch rebuilds need more than the 1 s default timeout.
+      FALKORDB_ARGS: "TIMEOUT_DEFAULT 30000 TIMEOUT_MAX 120000 RESULTSET_SIZE 100000"
+    volumes:
+      - orion-falkordb:/var/lib/falkordb/data
+    mem_limit: 1g
+
+volumes:
+  orion-falkordb:

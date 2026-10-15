@@ -1,0 +1,15 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+# node
+node_modules/
+.next/
+*.tsbuildinfo
+# secrets and local state
+.env
+.env.local
+*.rdb
+backend/data/cache/
