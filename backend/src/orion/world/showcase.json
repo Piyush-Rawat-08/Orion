@@ -1,0 +1,822 @@
+{
+ "question": "What breaks if we switch off sso-legacy?",
+ "asof": "2026-10-01T09:00",
+ "summary": "Switching off sso-legacy would stop invoice-render and reports-legacy outright and slow down billing-api, onboarding and web-console, touching 16 customers. The risk is high (score 100) and it cannot be auto-approved. The main link (invoice-render relying on sso-legacy) is not written down anywhere, so it is easy to miss.",
+ "claims": [
+  {
+   "index": 0,
+   "text": "Switching off sso-legacy directly stops invoice-render and reports-legacy.",
+   "evidence": [
+    "e2",
+    "e3"
+   ],
+   "kind": "breaks",
+   "verdict": "verified",
+   "reason": "the records show each of these",
+   "check": {
+    "graph": "universe:corvane:u1",
+    "query": "broken_detail",
+    "cypher": "breadth-first over DEPENDS_ON from every :Retired service; each witness path re-runs as:\nUNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+    "params": {
+     "edges": [
+      "dep:billing-api->invoice-render@2024-01-01",
+      "dep:invoice-render->sso-legacy@2024-06-10",
+      "dep:onboarding->billing-api@2024-01-01",
+      "dep:reports-legacy->sso-legacy@2024-01-01",
+      "dep:web-console->billing-api@2024-01-01"
+     ]
+    },
+    "result": {
+     "broken": [
+      "billing-api",
+      "invoice-render",
+      "onboarding",
+      "reports-legacy",
+      "web-console"
+     ]
+    }
+   },
+   "facts": [
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:reports-legacy->sso-legacy@2024-01-01"
+   ],
+   "nodes": [
+    "svc:invoice-render",
+    "svc:reports-legacy",
+    "svc:sso-legacy"
+   ],
+   "typed": {
+    "kind": "breaks",
+    "subject": "u1",
+    "objects": [
+     "invoice-render",
+     "reports-legacy"
+    ],
+    "measure": null,
+    "value": null,
+    "exhaustive": false
+   }
+  },
+  {
+   "index": 1,
+   "text": "Billing-api, onboarding and web-console would slow down or partly fail, through invoice-render.",
+   "evidence": [
+    "e4",
+    "e5",
+    "e6"
+   ],
+   "kind": "breaks",
+   "verdict": "verified",
+   "reason": "the records show each of these",
+   "check": {
+    "graph": "universe:corvane:u1",
+    "query": "broken_detail",
+    "cypher": "breadth-first over DEPENDS_ON from every :Retired service; each witness path re-runs as:\nUNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+    "params": {
+     "edges": [
+      "dep:billing-api->invoice-render@2024-01-01",
+      "dep:invoice-render->sso-legacy@2024-06-10",
+      "dep:onboarding->billing-api@2024-01-01",
+      "dep:reports-legacy->sso-legacy@2024-01-01",
+      "dep:web-console->billing-api@2024-01-01"
+     ]
+    },
+    "result": {
+     "broken": [
+      "billing-api",
+      "invoice-render",
+      "onboarding",
+      "reports-legacy",
+      "web-console"
+     ]
+    }
+   },
+   "facts": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:onboarding->billing-api@2024-01-01",
+    "dep:web-console->billing-api@2024-01-01"
+   ],
+   "nodes": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:onboarding",
+    "svc:sso-legacy",
+    "svc:web-console"
+   ],
+   "typed": {
+    "kind": "breaks",
+    "subject": "u1",
+    "objects": [
+     "billing-api",
+     "onboarding",
+     "web-console"
+    ],
+    "measure": null,
+    "value": null,
+    "exhaustive": false
+   }
+  },
+  {
+   "index": 2,
+   "text": "The dependency of invoice-render on sso-legacy is not declared; it only appears in the records as an undeclared link, so it is the path that takes down billing-api, onboarding and web-console.",
+   "evidence": [
+    "e1",
+    "e2"
+   ],
+   "kind": "free",
+   "verdict": "unsupported",
+   "reason": "The rows show invoice-render relying on sso-legacy at one hop, but they do not say the dependency is undeclared, and they show billing-api, onboarding and web-console being degraded rather than taken down. They also do not establish invoice-render as the sole path causing those effects.",
+   "check": null,
+   "facts": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:onboarding->billing-api@2024-01-01",
+    "dep:reports-legacy->sso-legacy@2024-01-01",
+    "dep:web-console->billing-api@2024-01-01"
+   ],
+   "nodes": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:onboarding",
+    "svc:reports-legacy",
+    "svc:sso-legacy",
+    "svc:web-console"
+   ],
+   "typed": {
+    "kind": "free",
+    "subject": "invoice-render",
+    "objects": [
+     "sso-legacy"
+    ],
+    "measure": null,
+    "value": null,
+    "exhaustive": false
+   }
+  },
+  {
+   "index": 3,
+   "text": "Sixteen customers would notice: five enterprise (Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank, Vireo Mobility), seven growth (Brightline Games, Copperleaf Energy, Fernway, Glasswing Security, Quillsoft, Sable Analytics, Tandem Logistics) and four starter (Juniper Learning, Kiln Studio, Larkspur Media, Otterly).",
+   "evidence": [
+    "e8"
+   ],
+   "kind": "breaks",
+   "verdict": "verified",
+   "reason": "the what-if's customer list shows exactly this",
+   "check": {
+    "graph": "universe:corvane:u1",
+    "query": "customers_affected",
+    "cypher": "MATCH (s:Service) WHERE s.uid IN $services\nOPTIONAL MATCH (c1:Customer)-[:USES]->(s)\nOPTIONAL MATCH (c2:Customer)<-[:RAISED_BY]-(k:Ticket)-[:ABOUT]->(s) WHERE k.at >= $since\nWITH s, collect(DISTINCT c1) AS users, collect(DISTINCT {c: c2, key: k.key}) AS raised\nUNWIND users + [x IN raised WHERE x.c IS NOT NULL | x.c] AS c\nWITH s, c, users, [x IN raised WHERE x.c = c | x.key] AS tickets\nRETURN DISTINCT c.uid AS uid, c.name AS customer, c.tier AS tier, s.uid AS service_uid, s.name AS service, tickets,\n       c IN users AS uses",
+    "params": {
+     "universe": "u1"
+    },
+    "result": {
+     "customers": [
+      "Brightline Games",
+      "Copperleaf Energy",
+      "Fernway",
+      "Glasswing Security",
+      "Helio Robotics",
+      "Juniper Learning",
+      "Kiln Studio",
+      "Larkspur Media",
+      "Mosaic Health",
+      "Northgate Retail",
+      "Otterly",
+      "Pinecrest Bank",
+      "Quillsoft",
+      "Sable Analytics",
+      "Tandem Logistics",
+      "Vireo Mobility"
+     ]
+    }
+   },
+   "facts": [],
+   "nodes": [
+    "u1"
+   ],
+   "typed": {
+    "kind": "breaks",
+    "subject": "u1",
+    "objects": [
+     "Helio Robotics",
+     "Mosaic Health",
+     "Northgate Retail",
+     "Pinecrest Bank",
+     "Vireo Mobility",
+     "Brightline Games",
+     "Copperleaf Energy",
+     "Fernway",
+     "Glasswing Security",
+     "Quillsoft",
+     "Sable Analytics",
+     "Tandem Logistics",
+     "Juniper Learning",
+     "Kiln Studio",
+     "Larkspur Media",
+     "Otterly"
+    ],
+    "measure": null,
+    "value": null,
+    "exhaustive": true
+   }
+  },
+  {
+   "index": 4,
+   "text": "Four teams must approve: Billing, Console, Data and Platform.",
+   "evidence": [
+    "e8"
+   ],
+   "kind": "approvers",
+   "verdict": "verified",
+   "reason": "what-if u1 shows exactly this",
+   "check": {
+    "graph": "universe:corvane:u1",
+    "query": "required_approvers",
+    "cypher": "what-if u1 against the company it was copied from: the teams that own or run something the change touches",
+    "params": {
+     "universe": "u1"
+    },
+    "result": {
+     "approvers": [
+      "Billing",
+      "Console",
+      "Data",
+      "Platform"
+     ]
+    }
+   },
+   "facts": [],
+   "nodes": [
+    "u1"
+   ],
+   "typed": {
+    "kind": "approvers",
+    "subject": "u1",
+    "objects": [
+     "Billing",
+     "Console",
+     "Data",
+     "Platform"
+    ],
+    "measure": "approvers",
+    "value": "4",
+    "exhaustive": true
+   }
+  },
+  {
+   "index": 5,
+   "text": "Risk of the switch-off is high, score 100, and it is not auto-approved.",
+   "evidence": [
+    "e8"
+   ],
+   "kind": "metric",
+   "verdict": "verified",
+   "reason": "the records say 100",
+   "check": {
+    "graph": "deck:corvane",
+    "query": "universe_risk",
+    "cypher": "MATCH (u:Universe {uid: $u})\nOPTIONAL MATCH (u)-[:SCORED]->(t:RiskTerm)\nWITH u, collect(t) AS terms\nRETURN CASE WHEN reduce(s = 0.0, t IN terms | s + t.points) > 100 THEN 100\n            ELSE toInteger(round(reduce(s = 0.0, t IN terms | s + t.points))) END AS risk_score,\n       [t IN terms | {kind: t.kind, subject: t.subject, points: t.points}] AS terms",
+    "params": {
+     "u": "u1"
+    },
+    "result": {
+     "risk_score": 100,
+     "terms": [
+      {
+       "kind": "break",
+       "subject": "invoice-render",
+       "points": 15.0
+      },
+      {
+       "kind": "break",
+       "subject": "reports-legacy",
+       "points": 6.0
+      },
+      {
+       "kind": "break",
+       "subject": "billing-api",
+       "points": 7.5
+      },
+      {
+       "kind": "break",
+       "subject": "onboarding",
+       "points": 3.8
+      },
+      {
+       "kind": "break",
+       "subject": "web-console",
+       "points": 7.5
+      },
+      {
+       "kind": "customer",
+       "subject": "Helio Robotics",
+       "points": 8.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Mosaic Health",
+       "points": 8.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Northgate Retail",
+       "points": 8.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Pinecrest Bank",
+       "points": 8.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Vireo Mobility",
+       "points": 8.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Brightline Games",
+       "points": 2.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Copperleaf Energy",
+       "points": 2.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Fernway",
+       "points": 4.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Glasswing Security",
+       "points": 2.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Quillsoft",
+       "points": 2.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Sable Analytics",
+       "points": 4.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Tandem Logistics",
+       "points": 2.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Juniper Learning",
+       "points": 1.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Kiln Studio",
+       "points": 1.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Larkspur Media",
+       "points": 1.0
+      },
+      {
+       "kind": "customer",
+       "subject": "Otterly",
+       "points": 1.0
+      }
+     ]
+    }
+   },
+   "facts": [],
+   "nodes": [
+    "u1"
+   ],
+   "typed": {
+    "kind": "metric",
+    "subject": "u1",
+    "objects": [],
+    "measure": "risk",
+    "value": "100",
+    "exhaustive": false
+   }
+  },
+  {
+   "index": 6,
+   "text": "No system would be left without anyone who knows it.",
+   "evidence": [
+    "e8"
+   ],
+   "kind": "orphans",
+   "verdict": "verified",
+   "reason": "what-if u1 shows exactly this",
+   "check": {
+    "graph": "universe:corvane:u1",
+    "query": "knowledge_orphans",
+    "cypher": "what-if u1 against the company it was copied from: services someone knew before and nobody knows after (no incoming KNOWS)",
+    "params": {
+     "universe": "u1"
+    },
+    "result": {
+     "orphans": []
+    }
+   },
+   "facts": [],
+   "nodes": [
+    "u1"
+   ],
+   "typed": {
+    "kind": "orphans",
+    "subject": "u1",
+    "objects": [],
+    "measure": "orphans",
+    "value": "0",
+    "exhaustive": true
+   }
+  },
+  {
+   "index": 7,
+   "text": "Invoice-render is known only by Ines Okafor.",
+   "evidence": [
+    "e2"
+   ],
+   "kind": "knows",
+   "verdict": "verified",
+   "reason": "the records show exactly this",
+   "check": {
+    "graph": "epoch:corvane:now",
+    "query": "knowers",
+    "cypher": "MATCH (s:Service {uid: $s})\nOPTIONAL MATCH (p:Person)-[:KNOWS]->(s)\nRETURN count(p) AS knowers, collect(p.name) AS people, collect(p.uid) AS uids",
+    "params": {
+     "s": "svc:invoice-render"
+    },
+    "result": {
+     "knowers": 1,
+     "people": [
+      "Ines Okafor"
+     ]
+    }
+   },
+   "facts": [
+    "dep:invoice-render->sso-legacy@2024-06-10"
+   ],
+   "nodes": [
+    "svc:invoice-render",
+    "svc:sso-legacy"
+   ],
+   "typed": {
+    "kind": "knows",
+    "subject": "invoice-render",
+    "objects": [
+     "Ines Okafor"
+    ],
+    "measure": "knowers",
+    "value": "1",
+    "exhaustive": true
+   }
+  },
+  {
+   "index": 8,
+   "text": "Nobody is recorded as knowing reports-legacy.",
+   "evidence": [
+    "e3"
+   ],
+   "kind": "knows",
+   "verdict": "verified",
+   "reason": "the records show exactly this",
+   "check": {
+    "graph": "epoch:corvane:now",
+    "query": "knowers",
+    "cypher": "MATCH (s:Service {uid: $s})\nOPTIONAL MATCH (p:Person)-[:KNOWS]->(s)\nRETURN count(p) AS knowers, collect(p.name) AS people, collect(p.uid) AS uids",
+    "params": {
+     "s": "svc:reports-legacy"
+    },
+    "result": {
+     "knowers": 0,
+     "people": []
+    }
+   },
+   "facts": [
+    "dep:reports-legacy->sso-legacy@2024-01-01"
+   ],
+   "nodes": [
+    "svc:reports-legacy",
+    "svc:sso-legacy"
+   ],
+   "typed": {
+    "kind": "knows",
+    "subject": "reports-legacy",
+    "objects": [],
+    "measure": "knowers",
+    "value": "0",
+    "exhaustive": true
+   }
+  }
+ ],
+ "follow_ups": [
+  "What order should we move things in to switch off sso-legacy safely?",
+  "Why is the invoice-render link to sso-legacy undeclared, and who recorded it?",
+  "Who should we talk to first about invoice-render and reports-legacy?"
+ ],
+ "evidence": [
+  {
+   "eid": "e1",
+   "graph": "org:corvane",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "adhoc": false,
+   "params": {
+    "edges": [
+     "dep:billing-api->invoice-render@2024-01-01",
+     "dep:invoice-render->sso-legacy@2024-06-10",
+     "dep:onboarding->billing-api@2024-01-01",
+     "dep:reports-legacy->sso-legacy@2024-01-01",
+     "dep:web-console->billing-api@2024-01-01"
+    ]
+   },
+   "node_uids": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:onboarding",
+    "svc:reports-legacy",
+    "svc:sso-legacy",
+    "svc:web-console"
+   ],
+   "fact_uids": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:onboarding->billing-api@2024-01-01",
+    "dep:reports-legacy->sso-legacy@2024-01-01",
+    "dep:web-console->billing-api@2024-01-01"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "what relies on sso-legacy as of 2026-10-01: every link in the chain",
+   "rows": [
+    {
+     "service": "invoice-render",
+     "hops": 1,
+     "effect": "break"
+    },
+    {
+     "service": "reports-legacy",
+     "hops": 1,
+     "effect": "break"
+    },
+    {
+     "service": "billing-api",
+     "hops": 2,
+     "effect": "degrade"
+    },
+    {
+     "service": "onboarding",
+     "hops": 3,
+     "effect": "degrade"
+    },
+    {
+     "service": "web-console",
+     "hops": 3,
+     "effect": "degrade"
+    }
+   ]
+  },
+  {
+   "eid": "e2",
+   "graph": "universe:corvane:u1",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "params": {
+    "edges": [
+     "dep:invoice-render->sso-legacy@2024-06-10"
+    ]
+   },
+   "node_uids": [
+    "svc:invoice-render",
+    "svc:sso-legacy"
+   ],
+   "fact_uids": [
+    "dep:invoice-render->sso-legacy@2024-06-10"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "invoice-render still relies on sso-legacy in what-if u1 (1 step(s)): sso-legacy -> invoice-render",
+   "universe_eid": "u1.broken.invoice-render"
+  },
+  {
+   "eid": "e3",
+   "graph": "universe:corvane:u1",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "params": {
+    "edges": [
+     "dep:reports-legacy->sso-legacy@2024-01-01"
+    ]
+   },
+   "node_uids": [
+    "svc:reports-legacy",
+    "svc:sso-legacy"
+   ],
+   "fact_uids": [
+    "dep:reports-legacy->sso-legacy@2024-01-01"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "reports-legacy still relies on sso-legacy in what-if u1 (1 step(s)): sso-legacy -> reports-legacy",
+   "universe_eid": "u1.broken.reports-legacy"
+  },
+  {
+   "eid": "e4",
+   "graph": "universe:corvane:u1",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "params": {
+    "edges": [
+     "dep:billing-api->invoice-render@2024-01-01",
+     "dep:invoice-render->sso-legacy@2024-06-10"
+    ]
+   },
+   "node_uids": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:sso-legacy"
+   ],
+   "fact_uids": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "billing-api still relies on sso-legacy in what-if u1 (2 step(s)): sso-legacy -> invoice-render -> billing-api",
+   "universe_eid": "u1.broken.billing-api"
+  },
+  {
+   "eid": "e5",
+   "graph": "universe:corvane:u1",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "params": {
+    "edges": [
+     "dep:onboarding->billing-api@2024-01-01",
+     "dep:billing-api->invoice-render@2024-01-01",
+     "dep:invoice-render->sso-legacy@2024-06-10"
+    ]
+   },
+   "node_uids": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:onboarding",
+    "svc:sso-legacy"
+   ],
+   "fact_uids": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:onboarding->billing-api@2024-01-01"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "onboarding still relies on sso-legacy in what-if u1 (3 step(s)): sso-legacy -> invoice-render -> billing-api -> onboarding",
+   "universe_eid": "u1.broken.onboarding"
+  },
+  {
+   "eid": "e6",
+   "graph": "universe:corvane:u1",
+   "query": "broken_detail",
+   "cypher": "UNWIND $edges AS e\nMATCH (a)-[r:DEPENDS_ON {uid: e}]->(b)\nRETURN a.uid AS from_uid, a.name AS from_name, b.uid AS to_uid, b.name AS to_name, r.uid AS uid, r.kind AS kind,\n       r.declared AS declared",
+   "params": {
+    "edges": [
+     "dep:web-console->billing-api@2024-01-01",
+     "dep:billing-api->invoice-render@2024-01-01",
+     "dep:invoice-render->sso-legacy@2024-06-10"
+    ]
+   },
+   "node_uids": [
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:sso-legacy",
+    "svc:web-console"
+   ],
+   "fact_uids": [
+    "dep:billing-api->invoice-render@2024-01-01",
+    "dep:invoice-render->sso-legacy@2024-06-10",
+    "dep:web-console->billing-api@2024-01-01"
+   ],
+   "asof": "2026-10-01T09:00",
+   "summary": "web-console still relies on sso-legacy in what-if u1 (3 step(s)): sso-legacy -> invoice-render -> billing-api -> web-console",
+   "universe_eid": "u1.broken.web-console"
+  },
+  {
+   "eid": "e7",
+   "graph": "universe:corvane:u1",
+   "query": "customers_affected",
+   "cypher": "MATCH (s:Service) WHERE s.uid IN $services\nOPTIONAL MATCH (c1:Customer)-[:USES]->(s)\nOPTIONAL MATCH (c2:Customer)<-[:RAISED_BY]-(k:Ticket)-[:ABOUT]->(s) WHERE k.at >= $since\nWITH s, collect(DISTINCT c1) AS users, collect(DISTINCT {c: c2, key: k.key}) AS raised\nUNWIND users + [x IN raised WHERE x.c IS NOT NULL | x.c] AS c\nWITH s, c, users, [x IN raised WHERE x.c = c | x.key] AS tickets\nRETURN DISTINCT c.uid AS uid, c.name AS customer, c.tier AS tier, s.uid AS service_uid, s.name AS service, tickets,\n       c IN users AS uses",
+   "params": {
+    "services": [
+     "svc:invoice-render",
+     "svc:reports-legacy",
+     "svc:billing-api",
+     "svc:onboarding",
+     "svc:web-console"
+    ],
+    "since": "2025-10-01"
+   },
+   "node_uids": [
+    "cust:brightline-games",
+    "cust:copperleaf-energy",
+    "cust:fernway",
+    "cust:glasswing-security",
+    "cust:helio-robotics",
+    "cust:juniper-learning",
+    "cust:kiln-studio",
+    "cust:larkspur-media",
+    "cust:mosaic-health",
+    "cust:northgate-retail",
+    "cust:otterly",
+    "cust:pinecrest-bank",
+    "cust:quillsoft",
+    "cust:sable-analytics",
+    "cust:tandem-logistics",
+    "cust:vireo-mobility"
+   ],
+   "fact_uids": [],
+   "asof": "2026-10-01T09:00",
+   "summary": "customers tied to the services that break in what-if u1",
+   "universe_eid": "u1.customers"
+  },
+  {
+   "eid": "e8",
+   "graph": "deck:corvane",
+   "query": "universe_risk",
+   "cypher": "MATCH (u:Universe {uid: $u})\nOPTIONAL MATCH (u)-[:SCORED]->(t:RiskTerm)\nWITH u, collect(t) AS terms\nRETURN CASE WHEN reduce(s = 0.0, t IN terms | s + t.points) > 100 THEN 100\n            ELSE toInteger(round(reduce(s = 0.0, t IN terms | s + t.points))) END AS risk_score,\n       [t IN terms | {kind: t.kind, subject: t.subject, points: t.points}] AS terms",
+   "params": {
+    "u": "u1"
+   },
+   "node_uids": [
+    "u1"
+   ],
+   "fact_uids": [],
+   "asof": "2026-10-01T09:00",
+   "summary": "risk of what-if u1: high 100, the sum of 21 terms",
+   "universe_eid": "u1.risk"
+  }
+ ],
+ "universes": [
+  {
+   "tool": "fork",
+   "args": {
+    "ops": [
+     {
+      "op": "deprecate_service",
+      "service": "sso-legacy"
+     }
+    ],
+    "title": "Switch off sso-legacy"
+   },
+   "ms": 841.4,
+   "ok": true,
+   "evidence": [
+    "e2",
+    "e3",
+    "e4",
+    "e5",
+    "e6",
+    "e7",
+    "e8"
+   ],
+   "nodes": [
+    "cust:brightline-games",
+    "cust:copperleaf-energy",
+    "cust:fernway",
+    "cust:glasswing-security",
+    "cust:helio-robotics",
+    "cust:juniper-learning",
+    "cust:kiln-studio",
+    "cust:larkspur-media",
+    "cust:mosaic-health",
+    "cust:northgate-retail",
+    "cust:otterly",
+    "cust:pinecrest-bank",
+    "cust:quillsoft",
+    "cust:sable-analytics",
+    "cust:tandem-logistics",
+    "cust:vireo-mobility",
+    "svc:billing-api",
+    "svc:invoice-render",
+    "svc:onboarding",
+    "svc:reports-legacy",
+    "svc:sso-legacy",
+    "svc:web-console",
+    "u1"
+   ]
+  }
+ ],
+ "graph": {
+  "queries": 456,
+  "copies": 1,
+  "ms": 542,
+  "graphs": [
+   "deck:corvane",
+   "epoch:corvane:now",
+   "org:corvane",
+   "universe:corvane:u1"
+  ]
+ },
+ "ms": 12185
+}

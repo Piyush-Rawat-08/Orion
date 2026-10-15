@@ -206,8 +206,9 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
 
     ctx.task = blackboard.post(db, t, "ask", {"question": question, "user": user}, posted_by=user or "api")
     blackboard.claim(db, t, "navigator", ["ask"], uid=ctx.task)
-    entities = typed.mentioned(db, t, question)
-    org = org_findings(db, t, entities, emit)
+    with dbm.tagged(f"task:{ctx.task}"):
+        entities = typed.mentioned(db, t, question)
+        org = org_findings(db, t, entities, emit)
     pre = prefetch(ctx, memory.playbook(db, t, user, qtype) if user else None, entities, emit)
 
     context = f"Company clock: {now}\n" + _context(recall, person, org)
@@ -261,12 +262,14 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
 
     if submitted is None:
         submitted = {"summary": last_text or "I couldn't finish this answer.", "claims": [], "follow_ups": []}
+    submitted = _unfold(submitted)
     claims = _claims(submitted.get("claims"))
     follow_ups = [f for f in (submitted.get("follow_ups") or []) if isinstance(f, str)][:3]
 
     if claims:
         emit({"type": "status", "agent": "verifier", "text": f"checking {len(claims)} claims against the records"})
-    verdicts = verify(db, claims, ctx.evidence, tenant=t)
+    with dbm.tagged(f"task:{ctx.task}"):
+        verdicts = verify(db, claims, ctx.evidence, tenant=t)
     for v in verdicts:
         emit({"type": "verdict", "agent": "verifier", "index": v["index"], "verdict": v["verdict"], "reason": v["reason"],
               "kind": v.get("kind"), "check": v.get("check")})
@@ -283,7 +286,8 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
                      "kind": v.get("kind", "free"),
                      "typed": json.dumps({k: c.get(k) for k in ("kind", "subject", "objects", "measure", "value", "exhaustive")}),
                      "check": json.dumps(v.get("check"), default=str) if v.get("check") else None})
-    persist(db, t, answer_uid, question, user, now, submitted.get("summary", ""), rows)
+    with dbm.tagged(f"task:{ctx.task}"):
+        persist(db, t, answer_uid, question, user, now, submitted.get("summary", ""), rows)
     if user:
         touched = [{"uid": n, "name": None} for r in rows for n in r["reads"][:20]]
         memory.add_turn(db, t, user, session, "user", question, now, entities=entities)
@@ -300,17 +304,39 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
         "universes": [c for c in ctx.calls if c["tool"] in ("fork", "dry_run")], "asof": now,
         "ms": round((time.perf_counter() - t0) * 1000), "usage": usage, "steps": steps, "qtype": qtype,
         "prefetched": [x for x, _, _ in pre], "org_findings": org,
+        # the work FalkorDB did for this answer: the line under it says which graphs, how many queries, how long
+        "graph": db.work(ctx.task),
     }
     acted = any(c["tool"] == "dry_run" for c in ctx.calls)
     db.q(dbm.org(t), """MATCH (a:Answer {uid: $a}) SET a.qnorm = $q, a.version = $v, a.payload = $p, a.shared = $shared""",
          {"a": answer_uid, "q": None if acted else _normalize(question), "v": dbm.version(db, t),
           "shared": user is None or not _personal(question),
-          "p": json.dumps({k: result[k] for k in ("summary", "claims", "follow_ups", "evidence", "universes")}, default=str)})
+          "p": json.dumps({k: result[k] for k in ("summary", "claims", "follow_ups", "evidence", "universes", "graph")}, default=str)})
     good = sum(1 for v in verdicts if v["verdict"] == "verified")
     blackboard.complete(db, t, ctx.task, {"answer": answer_uid}, f"{answer_uid}: {len(claims)} claim(s), {good} verified by the graph")
     result["task"] = ctx.task
-    emit({"type": "answer", **{k: result[k] for k in ("answer", "summary", "claims", "follow_ups", "ms")}})
+    emit({"type": "answer", **{k: result[k] for k in ("answer", "summary", "claims", "follow_ups", "ms", "graph")}})
     return result
+
+
+_PARAM = re.compile(r'(?:</\w+>\s*)?<parameter name="(\w+)">(.*?)(?=</parameter>|<parameter name=|$)', re.S)
+
+
+def _unfold(submitted: dict) -> dict:
+    """A small model now and then writes the rest of its call into the summary as text
+    ('...shows it.</summary><parameter name="claims">[...]'): take those fields back out of it."""
+    summary = submitted.get("summary")
+    if not isinstance(summary, str) or "<parameter name=" not in summary:
+        return submitted
+    head = re.split(r'</\w+>\s*<parameter name=|<parameter name=', summary, maxsplit=1)[0].strip()
+    out = {**submitted, "summary": head}
+    for name, value in _PARAM.findall(summary):
+        if name in ("claims", "follow_ups") and not submitted.get(name):
+            try:
+                out[name] = json.loads(value.strip())
+            except ValueError:
+                pass
+    return out
 
 
 def _claims(raw) -> list[dict]:

@@ -68,18 +68,19 @@ const I = {
 };
 
 
-// The main rail follows the one story a business reader needs (ask -> try a change -> approve it -> hear when an
-// answer stops being true -> look back); the rest sits behind "More". Titles and descriptions are plain words:
-// nobody should need to know what a fork, a graph or a query is to use a screen.
+// The main rail leads with what a first visitor should see (ask, try a change, the replayed outage, the head-to-head),
+// then the screens a team uses day to day; the rest sits behind "More". Inbox only makes sense after someone has asked
+// something, so it waits there and comes forward on its own when an answer goes out of date. Titles and descriptions
+// are plain words: nobody should need to know what a fork, a graph or a query is to use a screen.
 export const NAV = [
-  { href: "/", label: "Ask", key: "1", icon: I.brain, group: "ask", more: false, title: "Ask", sub: "Ask anything about the company. Every point in the answer is checked against the records." },
-  { href: "/multiverse", label: "What-ifs", key: "2", icon: I.multiverse, group: "change", more: false, title: "What-ifs", sub: "Try a change on a copy of the company and see what it would affect. Nothing real changes." },
-  { href: "/review", label: "Approvals", key: "3", icon: I.review, group: "change", more: false, title: "Approvals", sub: "Changes waiting for sign-off. Nothing happens until the teams responsible approve." },
-  { href: "/inbox", label: "Inbox", key: "4", icon: I.inbox, group: "change", more: false, title: "Inbox", sub: "Answers you were given that are no longer true, and what changed." },
-  { href: "/time", label: "History", key: "5", icon: I.time, group: "see", more: false, title: "History", sub: "The company as it was on any day since January 2024." },
-  { href: "/hindsight", label: "Hindsight", key: "9", icon: I.hindsight, group: "see", more: false, title: "Hindsight", sub: "Would Orion have caught it? Each incident replayed against the decision that led to it." },
-  { href: "/proof", label: "Proof", key: "0", icon: I.proof, group: "see", more: false, title: "Proof", sub: "Orion against the same model reading the same records, on questions the records can settle." },
-  { href: "/org", label: "Teams", key: "6", icon: I.org, group: "see", more: false, title: "Teams in practice", sub: "The org chart next to the groups people actually work in." },
+  { href: "/", label: "Ask", key: "1", icon: I.brain, group: "lead", more: false, title: "Ask", sub: "Ask anything about Corvane. Every point in the answer is checked against the records." },
+  { href: "/multiverse", label: "What-ifs", key: "2", icon: I.multiverse, group: "lead", more: false, title: "What-ifs", sub: "Try a change on a copy of the company and see what it would affect. Nothing real changes." },
+  { href: "/hindsight", label: "Hindsight", key: "9", icon: I.hindsight, group: "lead", more: false, title: "Hindsight", sub: "Would Orion have caught it? Each incident replayed against the decision that led to it." },
+  { href: "/proof", label: "Proof", key: "0", icon: I.proof, group: "lead", more: false, title: "Proof", sub: "Orion against the same model reading the same records, on questions the records can settle." },
+  { href: "/review", label: "Approvals", key: "3", icon: I.review, group: "team", more: false, title: "Approvals", sub: "Changes waiting for sign-off. Nothing happens until the teams responsible approve." },
+  { href: "/time", label: "History", key: "5", icon: I.time, group: "team", more: false, title: "History", sub: "The company as it was on any day since January 2024." },
+  { href: "/org", label: "Teams", key: "6", icon: I.org, group: "team", more: false, title: "Teams in practice", sub: "The org chart next to the groups people actually work in." },
+  { href: "/inbox", label: "Inbox", key: "4", icon: I.inbox, group: "more", more: true, title: "Inbox", sub: "Answers you were given that are no longer true, and what changed." },
   { href: "/repos", label: "Codebases", key: "7", icon: I.repos, group: "more", more: true, title: "Codebases", sub: "Load a GitHub project to see who knows each part of it and which parts are risky." },
   { href: "/activity", label: "Activity", key: "8", icon: I.activity, group: "more", more: true, title: "Activity", sub: "What the assistants are working on right now." },
 ] as const;

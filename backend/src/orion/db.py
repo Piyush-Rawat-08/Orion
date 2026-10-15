@@ -96,11 +96,47 @@ class DB:
                                ssl=config.FALKORDB_SSL)
         self.redis = self.client.connection
         self.log: deque[Logged] = deque(maxlen=400)
+        # per agent task: how many queries, how long they took, which graphs they touched, how many copies
+        self._work: dict[str, dict] = {}
+        self._work_lock = threading.Lock()
+        self._follows: dict[str, str] = {}  # a task an agent handed on -> the task it was done for
         self._meta_ready = False
 
+    def follows(self, task: str, parent: str) -> None:
+        """Work done for `task` (the Simulator forking for the Navigator, say) counts toward `parent`."""
+        with self._work_lock:
+            if len(self._follows) > 500:
+                self._follows.pop(next(iter(self._follows)))
+            self._follows[f"task:{task}"] = f"task:{parent}"
+
+    def _count(self, name: str, ms: float, copy: bool = False) -> None:
+        origin = ORIGIN.get()
+        if not origin or not origin.startswith("task:"):
+            return
+        with self._work_lock:
+            for _ in range(8):
+                if origin not in self._follows:
+                    break
+                origin = self._follows[origin]
+            w = self._work.get(origin)
+            if w is None:
+                if len(self._work) > 200:  # tasks nobody asked about (the Cartographer's) don't pile up
+                    self._work.pop(next(iter(self._work)))
+                w = self._work[origin] = {"queries": 0, "copies": 0, "ms": 0.0, "graphs": set()}
+            w["copies" if copy else "queries"] += 1
+            w["ms"] += ms
+            w["graphs"].add(name)
+
+    def work(self, task: str | None) -> dict | None:
+        """What a task asked of FalkorDB, for the line under an answer; forgets it once read."""
+        with self._work_lock:
+            w = self._work.pop(f"task:{task}", None)
+        return w and {"queries": w["queries"], "copies": w["copies"], "ms": round(w["ms"]), "graphs": sorted(w["graphs"])}
+
     def _logged(self, name: str, cypher: str, t0: float, n: int, ro: bool) -> None:
-        self.log.append(Logged(name, cypher, (time.perf_counter() - t0) * 1000, n, ro, time.time() * 1000,
-                               ORIGIN.get()))
+        ms = (time.perf_counter() - t0) * 1000
+        self.log.append(Logged(name, cypher, ms, n, ro, time.time() * 1000, ORIGIN.get()))
+        self._count(name, ms)
 
     def graph(self, name: str):
         return self.client.select_graph(name)
@@ -143,7 +179,9 @@ class DB:
                     if "fork" not in str(e).lower() or attempt == 7:
                         raise
                     time.sleep(0.15 * (attempt + 1))
-        return (time.perf_counter() - t0) * 1000
+        ms = (time.perf_counter() - t0) * 1000
+        self._count(dst, ms, copy=True)
+        return ms
 
     def delete(self, name: str) -> None:
         if self.exists(name):

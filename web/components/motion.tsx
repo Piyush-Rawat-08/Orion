@@ -116,7 +116,8 @@ export function CountUp({
     from.current = value;
     return () => controls.stop();
   }, [value, reduce, duration, once]);
-  return <span className={`tnum ${className}`}>{shown.toFixed(decimals)}</span>;
+  const text = shown.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return <span className={`tnum ${className}`}>{text}</span>;
 }
 
 /** true the first time `key` is seen in this page load: for animations that should play once per universe. */

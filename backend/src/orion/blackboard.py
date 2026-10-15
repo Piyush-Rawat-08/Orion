@@ -62,6 +62,7 @@ def post(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", f
     uid = f"task:{secrets.token_hex(5)}"
     root = None
     if follows:
+        db.follows(uid, follows)
         row = db.one(g, "MATCH (x:Task {uid: $u}) RETURN coalesce(x.root, x.uid) AS r", {"u": follows})
         root = row["r"] if row else None
     with dbm.tagged("board"):

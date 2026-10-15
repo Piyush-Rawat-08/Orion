@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useApp } from "./AppProvider";
 import BlameDrawer from "./BlameDrawer";
 import CommandPalette from "./CommandPalette";
+import PersonSwitcher from "./PersonSwitcher";
+import StartHere from "./StartHere";
 import { Kbd } from "./ui";
 import { NAV } from "./nav";
 import { SPRING } from "./motion";
@@ -92,7 +94,7 @@ function ThemeSwitch({ wide }: { wide: boolean }) {
 }
 
 /** The screens a phone gets a tab for; the rest sit behind More. */
-const TABS = ["/", "/multiverse", "/review", "/inbox"];
+const TABS = ["/", "/multiverse", "/hindsight", "/proof"];
 
 /** Phones: five tabs at the bottom, 56px tall plus the home-indicator inset. */
 function TabBar({ current, unread, onMore, moreOpen }: { current: string; unread: number; onMore: () => void; moreOpen: boolean }) {
@@ -131,8 +133,9 @@ function TabBar({ current, unread, onMore, moreOpen }: { current: string; unread
         aria-expanded={moreOpen}
         className={`flex flex-col items-center justify-center gap-1 text-[11px] ${inMore || moreOpen ? "text-ink" : "text-muted"}`}
       >
-        <span className={inMore ? "text-ember" : "text-faint"}>
+        <span className={`relative ${inMore ? "text-ember" : "text-faint"}`}>
           <Icon d={<><circle cx="3.5" cy="8" r="1.1" /><circle cx="8" cy="8" r="1.1" /><circle cx="12.5" cy="8" r="1.1" /></>} className="size-[18px]" />
+          {unread > 0 && <span className="absolute -right-1 -top-0.5 size-[7px] rounded-full bg-ember ring-2 ring-panel" aria-label={`${unread} in the inbox`} />}
         </span>
         More
       </button>
@@ -143,7 +146,7 @@ function TabBar({ current, unread, onMore, moreOpen }: { current: string; unread
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const { user, setUser, people, tenant, unread } = useApp();
+  const { tenant, unread, awake } = useApp();
   const stats = useFetch<Stats>("/stats", 10000);
   // the certificate belongs to Approvals
   const here = path.startsWith("/certificate") ? "/review" : path;
@@ -173,14 +176,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const byTeam = useMemo(() => {
-    const m = new Map<string, typeof people>();
-    for (const p of people) {
-      const k = p.team ?? "No team";
-      m.set(k, [...(m.get(k) ?? []), p]);
-    }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [people]);
 
   // ⌘K / Ctrl+K opens the palette; Alt+1..8 jumps between screens
   useEffect(() => {
@@ -202,7 +197,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const online = !stats.error;
-  const me = people.find((p) => p.uid === user);
+  // a sleeping free-tier API takes about a minute to answer the first request: say so instead of a blank date
+  const waking = !stats.data && (!awake || !stats.error);
+  const [since] = useState(() => Date.now());
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!waking) return;
+    const t = setInterval(() => tick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [waking]);
+  const waited = Math.round((Date.now() - since) / 1000);
+  const reloadStats = stats.reload;
+  useEffect(() => {
+    if (awake) reloadStats();
+  }, [awake, reloadStats]);
   /** shown only when the rail is wide */
   const W = folded ? "hidden" : "hidden xl:flex";
   const L = folded ? "hidden" : "hidden xl:inline";
@@ -288,7 +296,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               {NAV.map((n, i) => {
                 const active = n === current;
                 const newGroup = i > 0 && NAV[i - 1].group !== n.group && !n.more;
-                if (n.more && !showMore && !active) return null;
+                // the inbox comes out from under More by itself when an answer has gone out of date
+                const surfaced = n.href === "/inbox" && unread > 0;
+                if (n.more && !showMore && !active && !surfaced) return null;
                 return (
                   <li key={n.href}>
                     {newGroup && <div className="mx-1.5 my-2 h-px bg-rule-soft" aria-hidden />}
@@ -330,7 +340,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   onClick={() => setShowMore((v) => !v)}
                   aria-expanded={showMore || current.more}
                   className={`flex h-8 w-full items-center gap-2.5 rounded-lg ${PX} text-[13px] text-faint transition-colors hover:bg-raised/60 hover:text-muted`}
-                  title={showMore ? "Fewer screens" : "Codebases, Activity"}
+                  title={showMore ? "Fewer screens" : "Inbox, Codebases, Activity"}
                 >
                   <Icon d={showMore ? <path d="M4.5 9.5 8 6l3.5 3.5" /> : <path d="M4.5 6.5 8 10l3.5-3.5" />} />
                   <span className={`${L} flex-1 truncate text-left`}>{showMore ? "Less" : "More"}</span>
@@ -384,43 +394,35 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
           <div
             className="hidden items-center gap-2 whitespace-nowrap rounded-lg border border-rule bg-panel px-2.5 py-[5px] text-[12px] md:flex"
-            title="The date the company's records are at. Every answer is true as of this moment."
+            title={
+              waking
+                ? "The API runs on a free server that sleeps when nobody uses it. The first request wakes it."
+                : "The date the company's records are at. Every answer is true as of this moment."
+            }
+            role="status"
           >
             <span className="relative flex size-[7px]" aria-hidden>
-              <span className="absolute inset-0 rounded-full" style={{ background: online ? "var(--color-ok)" : "var(--color-bad)" }} />
+              {waking && <span className="absolute inset-0 animate-ping rounded-full bg-warn opacity-70" />}
+              <span
+                className="absolute inset-0 rounded-full"
+                style={{ background: waking ? "var(--color-warn)" : online ? "var(--color-ok)" : "var(--color-bad)" }}
+              />
             </span>
-            <span className="text-muted">Records as of</span>
-            <span className="tnum text-ink">{fmtDate(stats.data?.clock ?? tenant?.clock)}</span>
-            {!online && <span className="text-bad">offline</span>}
+            {waking ? (
+              <>
+                <span className="text-muted">Waking the API, about a minute</span>
+                {waited >= 3 && <span className="tnum text-faint">{waited}s</span>}
+              </>
+            ) : (
+              <>
+                <span className="text-muted">Records as of</span>
+                <span className="tnum text-ink">{fmtDate(stats.data?.clock ?? tenant?.clock)}</span>
+                {!online && <span className="text-bad">offline</span>}
+              </>
+            )}
           </div>
 
-          <label className="relative flex items-center">
-            <span className="sr-only">Viewing as</span>
-            <span
-              className="pointer-events-none absolute left-2 grid size-[22px] place-items-center rounded-full bg-raised text-[11px] font-semibold text-ink ring-1 ring-rule"
-              aria-hidden
-            >
-              {(me?.name ?? user.replace("person:", "")).split(/[\s-]/).map((w) => w[0]?.toUpperCase()).slice(0, 2).join("")}
-            </span>
-            <select
-              className="field h-[34px] w-[10.5rem] py-1 pl-9 sm:w-[12rem]"
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              aria-label="Viewing as"
-              title="Viewing as: answers, approvals and the inbox are for this person"
-            >
-              {!people.length && <option value={user}>{user.replace("person:", "")}</option>}
-              {byTeam.map(([team, ps]) => (
-                <optgroup key={team} label={team}>
-                  {ps.map((p) => (
-                    <option key={p.uid} value={p.uid}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </label>
+          <PersonSwitcher />
         </header>
         {/* Screens mount once, on the client, after the theme is known: the server can't know it, and inline
             colours rendered there for the wrong theme would survive hydration (light-theme visitors used to get
@@ -476,6 +478,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </motion.div>
         )}
       </AnimatePresence>
+      <StartHere />
       <BlameDrawer />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>

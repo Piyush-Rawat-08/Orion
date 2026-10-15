@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { get, setApiUser } from "@/lib/api";
 import { postStream } from "@/lib/sse";
-import type { AskResult, Claim, ClaimCheck, GEdge, GNode, LastSession, Notification, Person, Tenant, Verdict } from "@/lib/types";
+import type { AskResult, Claim, GraphUse, ClaimCheck, GEdge, GNode, LastSession, Notification, Person, Tenant, Verdict } from "@/lib/types";
 
 export type Step =
   | { id: number; kind: "status"; agent: string; text: string }
@@ -34,7 +34,7 @@ export interface Turn {
   status: "streaming" | "done" | "error";
   steps: Step[];
   verdicts: Record<number, { verdict: Verdict; reason: string; check?: ClaimCheck | null }>;
-  answer?: { answer: string; summary: string; claims: Claim[]; follow_ups: string[]; ms: number };
+  answer?: { answer?: string; summary: string; claims: Claim[]; follow_ups: string[]; ms: number; graph?: GraphUse | null };
   result?: AskResult;
   error?: string;
   /** brought back from an earlier visit: when it was asked, and whether its answer still holds */
@@ -97,6 +97,10 @@ interface Ctx {
   llm: boolean | null;
   /** the last conversation is still being fetched (at most 600 ms) */
   restoring: boolean;
+  /** whether the API has answered yet: false while a sleeping free-tier server wakes up */
+  awake: boolean;
+  /** answers whose inbox note says something they relied on changed: flagged wherever they are on screen */
+  staleAnswers: Set<string>;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -211,6 +215,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [blame, setBlame] = useState<BlameTarget | null>(null);
   const [unread, setUnread] = useState(0);
   const [llm, setLlm] = useState<boolean | null>(null);
+  const [awake, setAwake] = useState(false);
+  const [staleAnswers, setStaleAnswers] = useState<Set<string>>(() => new Set());
   const [ready, setReady] = useState(false);
   const [previous, setPrevious] = useState<LastSession | null>(null);
   // true until the last conversation has come back (or 600 ms have passed): the Ask screen shows its shape
@@ -231,18 +237,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     setReady(true);
-    get<Person[]>("/people").then(setPeople).catch(() => setPeople([]));
-    get<{ llm?: boolean }>("/api/health")
-      .then((h) => setLlm(h.llm !== false))
-      .catch(() => setLlm(null));
+    // a free-tier server sleeps when nobody uses it and takes about a minute to wake: keep knocking until it answers
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const knock = () =>
+      get<{ llm?: boolean }>("/api/health")
+        .then((h) => {
+          if (stop) return;
+          setLlm(h.llm !== false);
+          setAwake(true);
+        })
+        .catch(() => {
+          if (!stop) timer = setTimeout(knock, 4000);
+        });
+    knock();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
   }, []);
+
+  // the people list (and the company) once the server is up: asked for again if the first try hit a sleeping server
+  useEffect(() => {
+    if (!awake) return;
+    get<Person[]>("/people").then(setPeople).catch(() => setPeople([]));
+  }, [awake]);
 
   const refreshTenant = useCallback(() => {
     get<Tenant[]>("/api/tenants")
       .then((ts) => setTenant(ts.find((t) => t.id === "corvane") ?? ts[0] ?? null))
       .catch(() => setTenant(null));
   }, []);
-  useEffect(refreshTenant, [refreshTenant]);
+  useEffect(() => {
+    if (awake) refreshTenant();
+  }, [awake, refreshTenant]);
 
   const setUser = useCallback((u: string) => {
     setApiUser(u);
@@ -262,7 +290,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshInbox = useCallback(() => {
     get<Notification[]>(`/inbox?user=${encodeURIComponent(user)}`)
-      .then((ns) => setUnread(ns.filter((n) => !n.read).length))
+      .then((ns) => {
+        setUnread(ns.filter((n) => !n.read).length);
+        setStaleAnswers((prev) => {
+          const next = new Set(ns.map((n) => n.answer_uid));
+          return next.size === prev.size && [...next].every((a) => prev.has(a)) ? prev : next;
+        });
+      })
       .catch(() => {});
   }, [user]);
   useEffect(() => {
@@ -276,7 +310,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Memory across visits: on load (and when the persona changes) the Brain picks up that person's last
   // conversation where it left off, answers and receipts included.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !awake) return;
     let cancelled = false;
     setPrevious(null);
     setRestoring(true);
@@ -301,7 +335,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearTimeout(cap);
     };
-  }, [ready, user]);
+  }, [ready, awake, user]);
 
   const ask = useCallback(
     (question: string) => {
@@ -415,8 +449,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refreshInbox,
       llm,
       restoring,
+      awake,
+      staleAnswers,
     }),
-    [user, setUser, people, personName, tenant, refreshTenant, turns, asking, ask, stop, clearChat, previous, resume, highlight, hoverHighlight, hoverEnd, pinHighlight, clearHighlight, blame, closeBlame, unread, refreshInbox, llm, restoring],
+    [user, setUser, people, personName, tenant, refreshTenant, turns, asking, ask, stop, clearChat, previous, resume, highlight, hoverHighlight, hoverEnd, pinHighlight, clearHighlight, blame, closeBlame, unread, refreshInbox, llm, restoring, awake, staleAnswers],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

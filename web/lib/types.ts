@@ -167,7 +167,16 @@ export interface AskResult {
   asof: string;
   ms: number;
   usage?: { input: number; output: number; cache_read: number };
+  /** what FalkorDB did for this answer */
+  graph?: GraphUse | null;
   error?: string;
+}
+
+export interface GraphUse {
+  queries: number;
+  copies: number;
+  ms: number;
+  graphs: string[];
 }
 
 export interface Op {
@@ -492,7 +501,7 @@ export interface LastSession {
     at: string;
     answer: string;
     status: string;
-    result: Pick<AskResult, "summary" | "claims" | "follow_ups" | "evidence" | "universes">;
+    result: Pick<AskResult, "summary" | "claims" | "follow_ups" | "evidence" | "universes" | "graph">;
   }[];
 }
 

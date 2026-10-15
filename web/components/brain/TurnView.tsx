@@ -10,7 +10,7 @@ import { Spinner, UniverseTag, VerdictMark } from "../ui";
 import { useFetch } from "@/lib/hooks";
 import { fmtDate, fmtMs, plural } from "@/lib/format";
 import { C, riskColor, universeAccent, VERDICT_COLORS } from "@/lib/theme";
-import type { Claim, ClaimCheck, Evidence, UniverseDetail, Verdict } from "@/lib/types";
+import type { Claim, ClaimCheck, Evidence, GraphUse, UniverseDetail, Verdict } from "@/lib/types";
 import { TimeScrubber, WatchButton, type Dated } from "./AnswerTools";
 import { AGENT_WORD, CHECK_LONG, CHECK_SHORT, checkReason, factWords, scenarioLabel, statusWords, toolWords } from "@/lib/words";
 
@@ -372,8 +372,50 @@ function ForkCard({ uid, dry }: { uid: string; dry: boolean }) {
   );
 }
 
+/** What each kind of graph is, for the line under an answer. */
+const GRAPH_ROLE: [string, string][] = [
+  ["org:", "the company: people, systems, decisions, customers, and every answer and claim"],
+  ["epoch:", "the company as of one date, pruned to what was true then"],
+  ["universe:", "a what-if: a full copy of the company with the change applied"],
+  ["deck:", "the what-ifs and the agents' shared task board"],
+  ["mem:", "the asker's memory"],
+];
+const graphRole = (g: string) => GRAPH_ROLE.find(([p]) => g.startsWith(p))?.[1] ?? "";
+const graphOrder = (g: string) => {
+  const i = GRAPH_ROLE.findIndex(([p]) => g.startsWith(p));
+  return i < 0 ? 9 : i;
+};
+
+/** The work FalkorDB did for an answer: the graphs it read, how many queries, how long they took in the database. */
+function GraphWork({ work, total }: { work: GraphUse; total?: number }) {
+  const graphs = [...work.graphs].sort((a, b) => graphOrder(a) - graphOrder(b) || a.localeCompare(b));
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-rule-soft pt-3 text-[11px] text-faint">
+      <span className="flex items-center gap-1.5 text-muted">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+          <circle cx="3.9" cy="11.6" r="1.7" />
+          <circle cx="12" cy="4.2" r="1.7" />
+          <circle cx="12.4" cy="12.4" r="1.4" />
+          <path d="M5.3 10.4l5.4-5M5.6 11.9h5.4M12.1 5.9l.2 5.1" />
+        </svg>
+        FalkorDB
+      </span>
+      {graphs.map((g) => (
+        <span key={g} className="mono rounded border border-rule bg-well px-1.5 py-[1px] text-[11px] text-muted" title={graphRole(g)}>
+          {g}
+        </span>
+      ))}
+      <span className="tnum">
+        {plural(work.queries, "query", "queries")}
+        {work.copies > 0 && ` · ${plural(work.copies, "graph copy", "graph copies")}`} · {fmtMs(work.ms)} in the database
+        {total ? ` · answered in ${fmtMs(total)}` : ""}
+      </span>
+    </div>
+  );
+}
+
 export default function TurnView({ turn, latest = false }: { turn: Turn; latest?: boolean }) {
-  const { ask, asking, personName, llm, highlight, pinHighlight } = useApp();
+  const { ask, asking, personName, llm, highlight, pinHighlight, staleAnswers } = useApp();
   const evidence = useMemo(() => new Map((turn.result?.evidence ?? []).map((e) => [e.eid, e])), [turn.result]);
   const claims = turn.result?.claims ?? turn.answer?.claims ?? [];
   const summary = turn.result?.summary ?? turn.answer?.summary;
@@ -404,6 +446,9 @@ export default function TurnView({ turn, latest = false }: { turn: Turn; latest?
 
   const [dated, setDated] = useState<Dated | null>(null);
   const answerUid = turn.result?.answer ?? turn.answer?.answer;
+  // out of date: said so when it was brought back, or flagged since by the inbox (someone posted a change just now)
+  const stale = (answerUid ? staleAnswers.has(answerUid) : false) || (!!turn.restored && turn.restored.status !== "fresh");
+  const work = turn.result?.graph ?? turn.answer?.graph ?? null;
 
   const counts = claims.reduce<Record<string, number>>((a, c, i) => {
     const v = turn.verdicts[i]?.verdict ?? c.verdict;
@@ -425,19 +470,38 @@ export default function TurnView({ turn, latest = false }: { turn: Turn; latest?
             <>
               {" "}
               on {fmtDate(turn.restored.at)}
-              {turn.restored.status !== "fresh" && (
-                <>
-                  {" · "}
-                  <Link href="/inbox" className="text-warn underline-offset-2 hover:underline">
-                    out of date: something it relied on changed
-                  </Link>
-                </>
-              )}
+              <span className="text-faint"> · brought back from {personName(turn.user).split(" ")[0]}&apos;s memory</span>
             </>
           )}
         </p>
         <p className="heading mt-1 text-[20px] leading-[1.15] text-ink">{turn.question}</p>
       </header>
+
+      <AnimatePresence initial={false}>
+        {stale && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.35, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <Link
+              href="/inbox"
+              className="group flex items-start gap-2.5 rounded-xl border border-warn/35 bg-warn/[0.07] px-3.5 py-2.5 text-[13px] leading-snug"
+            >
+              <span className="relative mt-[5px] flex size-[7px] shrink-0" aria-hidden>
+                <span className="absolute inset-0 animate-ping rounded-full bg-warn opacity-60" />
+                <span className="absolute inset-0 rounded-full bg-warn" />
+              </span>
+              <span className="flex-1 text-ink">
+                Out of date. Something this answer relied on has changed since it was given.{" "}
+                <span className="text-warn underline-offset-2 group-hover:underline">See what changed</span>
+              </span>
+            </Link>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {!turn.restored && <Trace turn={turn} />}
 
@@ -513,8 +577,12 @@ export default function TurnView({ turn, latest = false }: { turn: Turn; latest?
         </div>
       )}
 
-      {turn.result && !turn.result.error && !turn.restored && (
-        <p className="text-[12px] text-muted">Answered in {fmtMs(turn.result.ms)}</p>
+      {work ? (
+        <GraphWork work={work} total={turn.result && !turn.restored ? turn.result.ms : undefined} />
+      ) : (
+        turn.result &&
+        !turn.result.error &&
+        !turn.restored && <p className="text-[12px] text-muted">Answered in {fmtMs(turn.result.ms)}</p>
       )}
     </motion.article>
   );

@@ -175,4 +175,8 @@ def reset(db: dbm.DB, tenant: str = "corvane") -> dict:
     stats = load(db, corvane.build())
     built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
     db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")
-    return stats | {"epoch_ms": built["total_ms"]}
+    from orion import showcase
+
+    # a visitor's first screen: the recorded sso-legacy answer, filed as Priya's last conversation
+    shown = showcase.seed(db, tenant) if tenant == "corvane" else None
+    return stats | {"epoch_ms": built["total_ms"], "showcase": shown}
