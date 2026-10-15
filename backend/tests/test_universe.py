@@ -99,3 +99,15 @@ def test_only_an_open_universe_can_be_rejected(db, tenant):
     assert uv.discard(db, tenant, rec["uid"], PRIYA)["status"] == "discarded"
     with pytest.raises(ValueError):
         uv.discard(db, tenant, rec["uid"], PRIYA)
+
+
+def test_an_owner_change_that_leaves_the_blast_radius_alone_still_needs_the_new_owner(db, tenant):
+    off = [{"op": "deprecate_service", "service": "reports-legacy"}]
+    rec = uv.fork(db, tenant, off, created_by=PRIYA)
+    assert {a["team"] for a in rec["diff"]["required_approvers"]} == {"Data"}
+    # ownership moves to Billing before anyone approves; what breaks and the risk stay the same
+    move = uv.fork(db, tenant, [{"op": "reassign_owner", "service": "reports-legacy", "team": "Billing"}], created_by=PRIYA)
+    uv.merge(db, tenant, move["uid"], PRIYA, force=True)
+    out = uv.approve(db, tenant, rec["uid"], PRIYA)
+    assert out["status"] == "rebase_needed" and "approvers" in out["what_changed"]
+    assert "Billing" in out["approvers"]["after"] and out["risk"]["before"] == out["risk"]["after"]

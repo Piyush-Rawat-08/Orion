@@ -521,8 +521,12 @@ def rebase(db: dbm.DB, t: str, uid: str) -> dict:
                 "broken": {"before": ob, "after": [], "no_longer": ob, "newly": []}}
     nd = new["diff"]
     nb = sorted(b["service"] for b in nd["broken"])
-    changed = old["risk"]["score"] != nd["risk"]["score"] or ob != nb
+    # the same headline isn't the same decision: who has to agree, who would notice and how each system is hit count
+    before, after = fingerprint(old), fingerprint(nd)
+    changed = before != after
     out = {"from": uid, "to": new["uid"], "changed": changed,
+           "what_changed": sorted(k for k in before if before[k] != after[k]),
+           "approvers": {"before": before["approvers"], "after": after["approvers"]},
            "risk": {"before": old["risk"]["score"], "after": nd["risk"]["score"], "level_before": old["risk"]["level"],
                     "level_after": nd["risk"]["level"]},
            "broken": {"before": ob, "after": nb, "no_longer": sorted(set(ob) - set(nb)), "newly": sorted(set(nb) - set(ob))},
@@ -536,6 +540,15 @@ def rebase(db: dbm.DB, t: str, uid: str) -> dict:
              {"u": new["uid"], "r": f"rebase check for {uid}: unchanged"})
         db.delete(new["graph"])
     return {**out, "old_diff": old, "new_diff": nd if changed else None}
+
+
+def fingerprint(d: dict) -> dict:
+    """What a decision on a what-if rests on. Approvals given for one fingerprint don't carry over to another."""
+    return {"risk": d["risk"]["score"],
+            "broken": sorted((b["service"], b["effect"]) for b in d["broken"]),
+            "approvers": sorted(r["team"] for r in d.get("required_approvers", [])),
+            "customers": sorted(c["customer"] for c in d.get("customers", [])),
+            "orphans": sorted(o["service"] for o in d.get("new_orphans", []))}
 
 
 def migration_gaps(ops: list[dict]) -> list[str]:
