@@ -26,6 +26,7 @@ from orion.queries import cypher
 
 OPEN = "9999-12-31"
 MOVE_WINDOW_DAYS = 14
+MIN_MOVERS = 3
 # what every plan rests on, said with it
 ASSUMPTIONS = [
     "Only dependencies in the records are modeled; one nobody wrote down (like invoice-render's, before INC-311) is invisible here.",
@@ -106,14 +107,15 @@ def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid
     for r in db.ro(g, """MATCH (d:Decision)-[:AFFECTS]->(:Service {uid: $r}) MATCH (d)-[:AFFECTS]->(x:Service)
                          WHERE x.uid <> $r RETURN DISTINCT x.uid AS uid, d.key AS key""", {"r": retired}):
         entry(r["uid"])["decisions"].append(r["key"])
-    # a move is a dependency on x that started within a fortnight of the one on `retired` ending, not any later one
+    # a move: a dependency on x that began after the one on `retired` did, while it held (add the new, then drop the
+    # old) or within a fortnight after it ended. It counts as precedent once MIN_MOVERS systems made the same move
     for r in db.ro(org, f"""MATCH (s:Service)-[o:DEPENDS_ON]->(:Service {{uid: $r}})
                            WHERE o.valid_to <> '{OPEN}' AND o.valid_to <= $asof AND s.uid <> $dep
-                           MATCH (s)-[n:DEPENDS_ON]->(x:Service) WHERE n.valid_from >= o.valid_from AND n.valid_from <= $asof
+                           MATCH (s)-[n:DEPENDS_ON]->(x:Service) WHERE n.valid_from > o.valid_from AND n.valid_from <= $asof
                              AND x.uid <> $r
                            RETURN DISTINCT x.uid AS uid, s.name AS mover, o.valid_to AS ended, n.valid_from AS began""",
                    {"r": retired, "asof": asof, "dep": dependent}):
-        if abs((_day(r["began"]) - _day(r["ended"])).days) <= MOVE_WINDOW_DAYS:
+        if (_day(r["began"]) - _day(r["ended"])).days <= MOVE_WINDOW_DAYS:
             entry(r["uid"])["movers"].append(r["mover"])
     for r in db.ro(g, """MATCH (tm:Team)-[o:OWNS]->(:Service {uid: $r}) WHERE o.declared = true
                          MATCH (tm)-[o2:OWNS]->(x:Service) WHERE x.uid <> $r AND o2.declared = true
@@ -130,6 +132,8 @@ def replacements(db: dbm.DB, t: str, g: str, retired: str, dependent: str, avoid
         why = []
         if v["successor"]:
             why.append(f"{', '.join(sorted(v['successor']))} names it the successor to {rname}")
+        if len(v["movers"]) < MIN_MOVERS:  # one or two systems picking it up is coincidence, not a migration
+            v["movers"] = []
         if v["movers"]:
             m = sorted(v["movers"])
             why.append(f"{len(m)} {'system' if len(m) == 1 else 'systems'} already moved to it from {rname} "
