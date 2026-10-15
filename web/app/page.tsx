@@ -52,10 +52,12 @@ export default function BrainPage() {
 
   // keep the newest step in view while the agent streams, unless the reader scrolled up
   const stepCount = turns.reduce((n, t) => n + t.steps.length + (t.answer ? 1 : 0), 0);
+  // (a conversation brought back from memory opens at the top, headline first)
+  const restoredOnly = turns.length > 0 && turns.every((t) => t.restored);
   useEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [stepCount, turns.length]);
+    if (el && stick.current && !restoredOnly) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [stepCount, turns.length, restoredOnly]);
 
   const onEdgeClick = useCallback(
     (e: GEdge, s?: GNode, t?: GNode, g?: EdgeGraph) =>
@@ -136,7 +138,7 @@ export default function BrainPage() {
         }}
         className="min-h-0 flex-1 overflow-y-auto px-6 py-6 xl:px-8"
       >
-        <header className="pb-7 pt-[2vh]">
+        <header className="pb-7 pt-[1vh]">
           <h2 className="heading text-[clamp(1.9rem,3vw,2.75rem)] leading-[0.98] tracking-[-0.03em]">
             <WordReveal text="See the company before you change it." id="ask-hero" />
           </h2>
@@ -156,9 +158,9 @@ export default function BrainPage() {
                   instance.
                 </>
               ) : (
-                ", in one FalkorDB instance."
+                <>{census ? ", in one FalkorDB instance." : "\u2019s people, systems, decisions and customers in one FalkorDB instance."}</>
               )}{" "}
-              Every claim in an answer is checked against the graph, and flagged when it stops being true.
+              Every claim is checked against the graph and flagged when it stops being true.
             </p>
           </Rise>
           <Rise delay={0.24}>
@@ -190,7 +192,7 @@ export default function BrainPage() {
           </Rise>
 
           <div className="@container mt-6">
-            <ul aria-label="Questions to start with" className="grid gap-2 @[560px]:grid-cols-3">
+            <ul aria-label="Questions to start with" className="grid gap-1.5 @[560px]:grid-cols-3 @[560px]:gap-2">
               {STARTERS.map((x, i) => (
                 <motion.li
                   key={x.q}
@@ -202,16 +204,16 @@ export default function BrainPage() {
                     type="button"
                     disabled={!x.go && (off || asking)}
                     onClick={() => (x.go ? router.push(x.go) : submit(x.q))}
-                    className="group relative flex h-full w-full flex-col overflow-hidden rounded-xl border border-rule bg-panel px-3.5 pb-3 pt-2.5 text-left transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-rule-strong hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                    className="group relative flex h-full w-full items-center gap-3 overflow-hidden rounded-xl border border-rule bg-panel px-3.5 py-2.5 text-left transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-rule-strong hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 @[560px]:flex-col @[560px]:items-stretch @[560px]:gap-0 @[560px]:pb-3 @[560px]:pt-2.5"
                   >
                     <span className="absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 bg-ember transition-transform duration-300 ease-[var(--ease-out-quint)] group-hover:scale-y-100" aria-hidden />
-                    <span className="flex items-center gap-2 text-[11px]">
+                    <span className="flex w-[4.6rem] shrink-0 items-center gap-2 text-[11px] @[560px]:w-auto">
                       <span className="mono text-ember">{x.track}</span>
-                      <span className="truncate text-faint">{x.what}</span>
+                      <span className="hidden truncate text-faint @[560px]:inline">{x.what}</span>
                     </span>
-                    <span className="mt-1.5 flex-1 text-[13.5px] leading-snug text-ink">{x.q}</span>
-                    <span className="mt-2 flex items-center gap-1 text-[11px] text-faint transition-colors group-hover:text-muted">
-                      {x.go ? "Open the replay" : "Ask it"}
+                    <span className="min-w-0 flex-1 text-[13.5px] leading-snug text-ink @[560px]:mt-1.5">{x.q}</span>
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] text-faint transition-colors group-hover:text-muted @[560px]:mt-2">
+                      <span className="hidden @[560px]:inline">{x.go ? "Open the replay" : "Ask it"}</span>
                       <svg width="10" height="10" viewBox="0 0 10 10" className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden>
                         <path d="M2 5h6M5.5 2.5 8 5 5.5 7.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
@@ -428,7 +430,7 @@ export default function BrainPage() {
 
   return (
     <Split id="brain" vertical={!wide}>
-      <Pane id="conversation" defaultSize={wide ? "38" : "64"} minSize={wide ? 340 : 260}>
+      <Pane id="conversation" defaultSize={wide ? "42" : "64"} minSize={wide ? 340 : 260}>
         {conversation}
       </Pane>
       <Handle label="Resize the conversation and the map" />

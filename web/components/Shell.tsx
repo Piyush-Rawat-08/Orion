@@ -265,8 +265,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <span className={`${W} min-w-0 flex-1 flex-col`}>
               <span className="truncate text-[12px] font-medium leading-tight text-ink">{tenant?.name ?? "Corvane"}</span>
               <span className="mt-[2px] flex items-center gap-1.5 truncate text-[11px] leading-tight text-faint">
-                <span className="size-[5px] shrink-0 rounded-full" style={{ background: online ? "var(--color-ok)" : "var(--color-bad)" }} aria-hidden />
-                {online ? "Live records" : "Can't connect"}
+                <span
+                  className="size-[5px] shrink-0 rounded-full"
+                  style={{ background: waking ? "var(--color-warn)" : online ? "var(--color-ok)" : "var(--color-bad)" }}
+                  aria-hidden
+                />
+                {waking ? "Waking up" : online ? "Live records" : "Can't connect"}
               </span>
             </span>
           </div>
@@ -372,7 +376,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <div className="flex min-h-0 min-w-0 flex-col">
-        <header className="relative z-20 flex h-[var(--top-h)] shrink-0 items-center gap-3 border-b border-rule bg-night px-4 md:gap-4 md:px-6">
+        <header className="relative z-[85] flex h-[var(--top-h)] shrink-0 items-center gap-3 border-b border-rule bg-night px-4 md:gap-4 md:px-6">
           <Link href="/" className="shrink-0 sm:hidden" aria-label="Orion home">
             <Mark size={20} />
           </Link>

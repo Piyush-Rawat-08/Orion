@@ -21,7 +21,8 @@ function load(): Saved {
   } catch {
     /* fresh */
   }
-  return { seen: [], open: true, gone: false };
+  // open on a first visit where there is room for it; a pill on phones, where it would cover the screen
+  return { seen: [], open: window.matchMedia("(min-width: 640px)").matches, gone: false };
 }
 
 function save(s: Saved) {
@@ -126,7 +127,12 @@ export default function StartHere() {
   const next = steps.find((x) => !s.seen.includes(x.id));
 
   return (
-    <div className="pointer-events-none fixed bottom-[calc(var(--tab-h)+env(safe-area-inset-bottom)+12px)] right-3 z-[80] sm:bottom-4 sm:right-4">
+    // on a phone's Ask screen the folded pill would sit on the composer; the headline's Start here opens it there
+    <div
+      className={`pointer-events-none fixed bottom-[calc(var(--tab-h)+env(safe-area-inset-bottom)+12px)] right-3 z-[80] sm:bottom-4 sm:right-4 ${
+        !s.open && path === "/" ? "hidden sm:block" : ""
+      }`}
+    >
       <AnimatePresence mode="wait" initial={false}>
         {s.open ? (
           <motion.section
