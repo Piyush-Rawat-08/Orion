@@ -9,6 +9,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import SafePath, { type PlanResult } from "@/components/multiverse/SafePath";
+import IncidentTrack from "@/components/hindsight/IncidentTrack";
+import { useApp } from "@/components/AppProvider";
 import { CountUp, EASE, Rise } from "@/components/motion";
 import { Empty, ErrorNote, Spinner } from "@/components/ui";
 import { useFetch } from "@/lib/hooks";
@@ -124,6 +126,7 @@ function Hindsight() {
 
 function ReplayView({ inc }: { inc: Incident }) {
   const reduce = useReducedMotion();
+  const { tenant } = useApp();
   const [status, setStatus] = useState<string>("");
   const [known, setKnown] = useState<Side | null>(null);
   const [truth, setTruth] = useState<Side | null>(null);
@@ -185,7 +188,7 @@ function ReplayView({ inc }: { inc: Incident }) {
         </p>
       </Rise>
 
-      {d && r && <Timeline r={r} />}
+      {d && r && <IncidentTrack r={r} today={tenant?.clock} />}
       {d && !r && !error && (
         <p className="mt-8 flex items-center gap-2 text-[13px] text-muted" aria-live="polite">
           <Spinner size={12} /> {status || "Rebuilding the past"}
@@ -396,68 +399,6 @@ function Big({ n, unit, label }: { n: number; unit: string; label: string }) {
         <span className="ml-1.5 text-[14px] font-normal text-muted">{unit}</span>
       </dt>
       <dd className="mt-1.5 text-[12px] leading-snug text-muted">{label}</dd>
-    </div>
-  );
-}
-
-const KIND_STYLE: Record<string, { color: string; word: string }> = {
-  decision: { color: "var(--color-ink)", word: "decision" },
-  incident: { color: "var(--color-bad)", word: "incident" },
-  recorded: { color: "var(--color-warn)", word: "written down" },
-  fixed: { color: "var(--color-ok)", word: "fixed" },
-  waiting: { color: "var(--color-ember)", word: "fix opened" },
-};
-
-/** The events on one line, in proportion to the time between them, with a playhead sweeping across once. */
-function Timeline({ r }: { r: Replay }) {
-  const reduce = useReducedMotion();
-  const ev = r.timeline;
-  const t0 = Date.parse(ev[0].at.slice(0, 10)),
-    t1 = Date.parse(ev[ev.length - 1].at.slice(0, 10));
-  const span = Math.max(1, t1 - t0);
-  // keep close events readable: positions are proportional, then spread apart where they would collide
-  const xs = useMemo(() => {
-    const raw = ev.map((e) => (Date.parse(e.at.slice(0, 10)) - t0) / span);
-    const out = [...raw];
-    for (let i = 1; i < out.length; i++) out[i] = Math.max(out[i], out[i - 1] + 0.24);
-    const m = Math.max(1, out[out.length - 1]);
-    return out.map((x) => x / m);
-  }, [ev, t0, span]);
-  return (
-    <div className="relative mx-[76px] mt-10 pb-2 pt-14" aria-label="What happened, in order">
-      <div className="absolute inset-x-0 top-[70px] h-px bg-rule" />
-      {!reduce && (
-        <motion.div
-          className="absolute top-[64px] h-[13px] w-[2px] rounded-full bg-ember shadow-[0_0_12px_var(--color-ember)]"
-          initial={{ left: "0%" }}
-          animate={{ left: "100%" }}
-          transition={{ duration: 2.4, ease: [0.45, 0, 0.2, 1] }}
-        />
-      )}
-      {ev.map((e, i) => {
-        const k = KIND_STYLE[e.kind] ?? KIND_STYLE.decision;
-        return (
-          <motion.div
-            key={i}
-            className="absolute -translate-x-1/2"
-            style={{ left: `${xs[i] * 100}%`, top: 0 }}
-            initial={reduce ? false : { opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: reduce ? 0 : 0.2 + xs[i] * 2.2, duration: 0.3 }}
-          >
-            <p className="whitespace-nowrap text-center text-[11px]" style={{ color: k.color }}>
-              {k.word}
-            </p>
-            <p className="mono whitespace-nowrap text-center text-[11px] text-muted">{fmtDate(e.at)}</p>
-            <span
-              className={`relative mx-auto mt-[19px] block size-[11px] rounded-full ${e.kind === "incident" && !reduce ? "pulse-ring" : ""}`}
-              style={{ background: k.color, boxShadow: `0 0 0 3px var(--color-night), 0 0 14px ${k.color}` }}
-            />
-            <p className="mx-auto mt-2 w-[150px] text-center text-[11px] leading-snug text-ink">{e.label}</p>
-          </motion.div>
-        );
-      })}
-      <div className="h-[84px]" />
     </div>
   );
 }
