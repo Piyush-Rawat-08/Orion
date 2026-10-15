@@ -47,8 +47,11 @@ later (BILL-207).
 **Proof.** 29 questions generated from the graph, so each has an answer the records settle (who actually knows a
 system, what it relies on at any depth, what breaks and how many, whether a decision still holds). The same model
 answers them twice: as Orion, and reading the 15 most relevant records as a retrieval assistant would. Graded the same
-way: **Orion 97% correct (28/29), the same model reading the records 28% (8/29)**; Orion named someone or something
-wrong in 1 answer, the baseline in 9. Every question and both answers are on the Proof screen; rerun it with
+way: **Orion 97% correct (28/29), the same model reading the records 28% (8/29)** in the run on the Proof screen.
+Over three runs, Orion scored 24 to 28 (90% overall) and the baseline 5 to 8 (23%). Read by hand, eight of Orion's nine
+misses across the runs were the strict grader (a negation, the first of several numbers, a name in a side remark) and
+one was a real mistake. The questions come from the graph and the baseline is keyword retrieval, so this measures
+graph-shaped questions, not accuracy in general. Every question and both answers are on the Proof screen; rerun it with
 `uv run python -m orion.evals`.
 
 | | | |

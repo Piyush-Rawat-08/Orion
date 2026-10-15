@@ -1,6 +1,6 @@
 ---
-title: "The dependency nobody wrote down: forking a whole company in 60 ms with FalkorDB"
-subtitle: "Every question gets its own copy of the company. Here's how GRAPH.COPY made that cheap enough to do, and what broke along the way."
+title: "The dependency nobody wrote down: copying a whole company in 60 ms with FalkorDB"
+subtitle: "Every question gets its own copy of the company. Here's how GRAPH.COPY made that cheap enough to do, what it can and can't tell you, and what broke along the way."
 tags: falkordb, graph-database, ai-agents, hackathon
 cover: https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/hindsight-cover.jpg
 ---
@@ -19,18 +19,44 @@ Corvane is made up. But every engineer I've told this story to has their own ver
 stopped the mistake existed. It was in someone's head, or in a chat message, or in a ticket from last year. It just
 wasn't anywhere you'd look before approving the change.
 
-Could anyone have seen it coming on 3 March, with only what had been written down by then? I'll come back to that.
+Could anyone have seen it coming on 3 March, with only what had been written down by then?
 
-I built **Orion** for the Graph Hacks hackathon. The pitch is one line: *see the company before you change it.*
+I built **Orion** for the Graph Hacks hackathon to answer questions like that one, and to make asking them cheap.
 Before anyone switches off a system, loses a teammate or merges two teams, Orion copies the entire company into a
 parallel universe, makes the change there, and shows you what breaks.
 
-- Live: https://orion-gamma-six.vercel.app
-- Code: https://github.com/Sumit99589/orion
+## The same decision, two versions of 3 March
+
+Here's the short answer, before the how. Orion can rebuild Corvane as it stood on 3 March twice: once with only the
+facts that had been written down by then, and once with everything that was actually true. Then it runs ADR-011 on
+both.
+
+![The same decision on two versions of 3 March: risk 26 on what was written down, 100 on what was true](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/two-days.png)
+
+On what was written down, switching off sso-legacy scores a simulated risk of 26: one old reporting system stops. On
+what was true, it scores 100: five systems and all 16 customers. The whole gap is one edge, true since June 2024 and
+recorded after the outage.
+
+So no, the records couldn't have caught it. That's the honest framing for everything that follows. Orion doesn't
+predict the future. It makes a company's dependencies, decisions and missing knowledge visible before a change, and
+afterwards it can tell you exactly how big the blind spot was.
+
+## Two minutes with the demo
+
+The live demo is at **https://orion-gamma-six.vercel.app**. It opens on a real answer Priya got to "What breaks if we
+switch off sso-legacy?", with every point marked checked or not. If the header says "Waking the API", give it a
+minute: the API runs on a free host that sleeps. Then do three things, in order (the **Start here** panel walks you
+through them too):
+
+1. **Break something.** Press "Open the what-if". sso-legacy is switched off in a copy of the company: see what stops
+   working and who would notice, then press **Find the safe path**.
+2. **Fix the knowledge.** Go to Inbox (under More), press "Use the example message", then **Post to #billing**. That's
+   Tomasz saying the dependency is gone. Priya's earlier answer is flagged out of date, with the points that broke.
+3. **Travel back in time.** Open Hindsight and pick INC-311: what was known on 3 March against what was true.
 
 ![The Ask screen: every point in the answer checked against the records, and the one it couldn't confirm marked that way](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/ask.jpg)
 
-## One graph for the company
+## A graph that can go backwards in time
 
 All of Corvane lives in one FalkorDB graph: 40 people, six teams, 26 services, 16 customers, plus the decisions,
 tickets, pull requests, chat messages and documents that connect them. Two years of history, generated from a fixed
@@ -38,9 +64,7 @@ seed. Today's company is about 1,700 nodes and 5,000 relationships.
 
 ![The graph model: the main labels, the validity on every fact, and the READ edges from claims](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/graph-model.png)
 
-The first thing I had to get right was time. A company graph that only knows the present is useless for this,
-because the interesting questions are all "what did we know, and when". So every relationship that can stop being true
-carries four extra properties:
+The first thing to get right was time. Every relationship that can stop being true carries four extra properties:
 
 | Property | Meaning |
 |---|---|
@@ -48,16 +72,17 @@ carries four extra properties:
 | `recorded_at` | When the company found out |
 | `src` | The message, document, ticket or decision it came from |
 
-Nothing is ever deleted. A fact that stops being true gets closed, with a pointer to whatever closed it.
+This graph, `org:corvane`, is the permanent record, and nothing in it is ever deleted. A fact that stops being true
+gets closed, with a pointer to whatever closed it.
 
-The ghost dependency from the story looks like this in the graph: `(invoice-render)-[:DEPENDS_ON]->(sso-legacy)`,
-`valid_from: 2024-06-10`, `recorded_at: 2026-03-24`, and `src` pointing at Tomasz's message. That gap between
-`valid_from` and `recorded_at` is the whole incident, stored in one edge.
+The ghost dependency looks like this: `(invoice-render)-[:DEPENDS_ON]->(sso-legacy)`, `valid_from: 2024-06-10`,
+`recorded_at: 2026-03-24`, and `src` pointing at Tomasz's message. That gap between `valid_from` and `recorded_at` is
+the whole incident, stored in one edge.
 
 With validity on every edge, "who owned billing-api last June" is just a `WHERE` clause. "Who's to blame for this
 fact" is following `src`. So far, so ordinary.
 
-## Why the copies are real copies
+## Why I started copying entire companies
 
 Then I tried running graph algorithms on a past date and hit the problem that shaped the rest of the project.
 
@@ -66,53 +91,68 @@ other at all), `algo.betweenness`, `algo.pageRank` and `algo.labelPropagation`. 
 label and relationship type. You can't filter by property. The path-finding procedures do read properties, as weights
 and costs, so this isn't absolute. But none of the algorithms I needed can skip an edge because its `valid_to` has
 passed. Ask for the connected components of the dependency graph "as of last June", and a `DEPENDS_ON` edge that was
-closed in January still gets walked. You can't `WHERE` your way out of it.
+closed in January still gets walked.
 
-So I stopped trying to filter and started copying. An **epoch** is the company on a date, as its own graph:
+So I stopped trying to filter and started copying. An **epoch** is the company on a date, as its own graph, and it is
+disposable:
 
 1. `GRAPH.COPY org:corvane epoch:corvane:2026-03-03:true`
-2. Delete every relationship that wasn't valid on that date.
+2. In the copy, delete every relationship that wasn't valid on that date.
 3. Delete every message, ticket and decision from after it, and rewind statuses (a decision superseded in April is
    `accepted` again).
 4. Relabel people who'd already left as `:Former` and retired services as `:Retired`, so label filters skip them.
 5. Recompute the derived edges for that date: who `KNOWS` a service (three or more changes or reviews in the last 180
-   days), who `COLLABORATES` with whom (shared changes, decaying with a 90-day half-life).
+   days), who `COLLABORATES` with whom.
 
 ```cypher
 MATCH ()-[r]->() WHERE r.valid_from IS NOT NULL AND (r.valid_from > $d OR r.valid_to <= $d) DELETE r
 MATCH (s:Source) WHERE s.at > $d DETACH DELETE s
 ```
 
-There's a second flavour, the `known` epoch. It also deletes facts with `recorded_at` after the date. The `true` epoch
-is what the company actually was on 3 March. The `known` epoch is what the company *could have known* on 3 March. Hold
-on to that one.
+Those deletes only ever happen in copies. The record keeps everything, so any copy can be thrown away and rebuilt.
 
-Copying today's Corvane took a median of 62 ms over 20 runs on my desktop (51 to 79 ms). That number made everything
-else possible. If a copy took ten seconds, I'd have built some clever overlay system. At 60 ms, every question can
-just have its own company.
+The second flavour is the `known` epoch, which also deletes facts with `recorded_at` after the date. The `true` epoch
+is what the company was on 3 March. The `known` epoch is what it *could have known*. That pair is where the 26 and the
+100 come from.
 
-## Universes: fork, change, compare
+![One permanent record, many disposable companies](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/copies.png)
 
-A **universe** is a copy of today's epoch with a change applied physically. "Switch off sso-legacy" means the service
+How cheap is a copy? Here's what I measured, with the copy kept separate from the work done on it:
+
+| Operation | Where | Time |
+|---|---|---|
+| `GRAPH.COPY` of today's Corvane (1,716 nodes, 4,999 relationships) | local FalkorDB, my desktop | 62 ms, median of 20 runs (51 to 79) |
+| Rebuilding today's epoch: copy, prune, recompute derived edges | FalkorDB Cloud | about 2.9 s |
+| Safe path: 16 candidate companies copied and scored | local FalkorDB | about 1.1 s |
+| The same safe path search | FalkorDB Cloud, free tier | about 10 s |
+
+The cheap copy is what made the design possible. If a copy took ten seconds, I'd have built some clever overlay
+system. At 60 ms, every question can just have its own company.
+
+## What happens when you fork a decision
+
+A **universe** is a copy of today's epoch with a change applied for real. "Switch off sso-legacy" means the service
 gets `:Retired` and its edges go. "Ines leaves" means she becomes `:Former` and loses her `KNOWS` edges.
 
 Then Orion runs the same queries and algorithms on both graphs and diffs them. **What breaks** is a breadth-first walk
-up `DEPENDS_ON`, one indexed query per hop, keeping the worst effect at each service and a witness path so you can see
-why. Then come the customers who use something broken, the services nobody left `KNOWS`, the systems WCC says have lost
-every path back to a team, and the teams that have to agree. All of that rolls into a risk score from 0 to 100.
+up `DEPENDS_ON`, one indexed query per hop, keeping the worst effect at each service (a sync dependency stops, an async
+one slows down) and a witness path so you can see why. The **risk score** is a sum of named points: each system that
+stops or slows (weighted by how important it is and how far away), each customer who uses one, each system nobody left
+would know, each group of systems no team would own any more, and each working group that would come apart. It's
+capped at 100, and every point is listed with where it came from.
 
 Switching off sso-legacy today: risk 100. invoice-render and reports-legacy stop working; billing-api, onboarding and
 web-console slow down through invoice-render; Billing, Console, Data and Platform all have to sign off.
 
 ![A what-if: what stops working, step by step, and who has to agree](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/whatif.jpg)
 
-A universe can also be merged back. Nothing changes in the real records until every affected team approves. Then the
-universe's changes are replayed into the org graph as closed and opened facts, with the approved decision as their
-source. I wrote a property test for this, because it's easy to get subtly wrong: 30 random lists of changes, each one
-forked into a universe and also merged into the records and rebuilt, and the two compared all the way down to WCC
-components, betweenness, PageRank and impact. If they ever differ, the what-if was lying.
+Nothing changes in the record until every affected team approves. Then the universe's changes are replayed into the
+org graph as closed and opened facts, with the approved decision as their source. I wrote a property test for this,
+because it's easy to get subtly wrong: 30 random lists of changes, each one forked into a universe and also merged into
+the record and rebuilt, and the two compared all the way down to WCC components, betweenness, PageRank and impact. If
+they ever differ, the what-if was lying.
 
-## The safe path
+## Finding a safer path
 
 Telling someone "this will break five things" is half an answer. They want to know how to do it safely.
 
@@ -132,98 +172,68 @@ finally:
     db.delete(g)
 ```
 
-On Corvane it explores 16 parallel companies and comes back with three steps: move invoice-render onto identity,
-switch reports-legacy off as well, then switch off sso-legacy. Risk goes from 100 to 0. That takes about a second on my
-desktop and about ten on the free cloud instance, where the copies have to take turns (more on that below). One click
-sends the plan to the teams it touches.
+On Corvane it explores 16 candidate companies and comes back with three steps: move invoice-render onto identity,
+switch reports-legacy off as well, then switch off sso-legacy. The simulated risk goes from 100 to 0.
 
 ![The safe path: every company explored, the winning branch lit up](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/safepath.jpg)
 
-Brute-forcing copies of an entire company sounds wasteful, and on paper it is. But the alternative was writing a
-second, incremental version of every query and algorithm that understands "pretend these edges are gone". That would
-have been a source of bugs where the planner and the what-if quietly disagree. With copies there's one scoring path.
+That 0 needs reading carefully, and the opening of this post is the reason. It means no risk that Orion's model can
+see in what the graph records. It doesn't mean the migration is guaranteed to be safe. If there's another
+invoice-render out there, depending on something nobody wrote down, the plan won't know about it either. What the plan
+does give you is an order of operations and a list of teams to ask, which is exactly the conversation that didn't
+happen before ADR-011.
 
-## Back to 3 March
+Brute-forcing copies of an entire company sounds wasteful, and on paper it is. But the alternative was a second,
+incremental version of every query and algorithm that understands "pretend these edges are gone", and with it, bugs
+where the planner and the what-if quietly disagree. With copies there's one scoring path.
 
-Here's where `true` against `known` pays off. For every incident, Orion finds the decision that led to it and tests
-that decision twice, on the day it was made:
+## Could Orion have prevented the outage?
 
-- On the `known` epoch for 3 March, what had been written down by then: **risk 26**. One old reporting system breaks.
-  ADR-011 looks fine. That's what the people approving it saw.
-- On the `true` epoch for 3 March, what was actually the case: **risk 100**. Five systems, all 16 customers.
+Back to 3 March. For every incident, Orion finds the decision that led to it and tests that decision on the day it was
+made, on both epochs:
 
-The difference between the two is exactly the facts on the breakage paths whose `recorded_at` is after the decision.
-Here that's one edge: invoice-render → sso-legacy, true since June 2024, written down six days after the outage. Orion
-shows you the message that finally recorded it.
+- On the `known` epoch, what had been written down: **risk 26**. One old reporting system stops, and ADR-011 looks
+  fine. That's what the people approving it saw.
+- On the `true` epoch, what was actually the case: **risk 100**. Five systems, all 16 customers.
 
-So, could anyone have seen it coming? Not from the records. Everything written down on 3 March said the change was
-safe. The blind spot was 74 points of risk wide, and it lived in one fact that only Billing had.
+The difference is exactly the facts on the breakage paths whose `recorded_at` is after the decision. Here that's one
+edge, and Orion shows you the message that finally recorded it.
 
-Then Orion runs the safe path on that same day. Its first step is moving invoice-render onto identity, which is exactly
-the fix Billing filed after the outage as BILL-207. In Corvane's records that ticket is still open months later,
-waiting on an endpoint from Platform, and sso-legacy is still running because of it.
+![Hindsight: ADR-011 approved on 3 March for a switch-off on 17 March, the outage, the fact nobody had written down, and the fix still open, to scale](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/hindsight.jpg)
 
-![Hindsight: the decision, the incident, and the fact nobody had written down, to scale](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/hindsight.jpg)
+So the answer is no. Everything written down on 3 March said the change was safe, and Orion, reading those records,
+would have said so too. The blind spot was 74 points wide, and it lived in one fact that only Billing had.
+
+Then Orion runs the safe path on that same day. Its first step is moving invoice-render onto identity, which is the fix
+Billing filed after the outage as BILL-207. In Corvane's records that ticket is still open months later, waiting on an
+endpoint from Platform, and sso-legacy is still running because of it.
 
 I like this screen more than anything else in the project, because it's honest about what Orion can't do. If a fact
-was never written down anywhere, Orion can't see it either. What it can do is show you exactly how big that blind spot
-was, and where the knowledge eventually came from.
+was never written down anywhere, Orion can't see it either. What it can do is show you how big that blind spot was,
+and where the knowledge eventually came from.
 
-## Does it actually help?
+## An answer that knows when it becomes wrong
 
-One good story isn't evidence, so I wanted a number. Orion generates 29 questions from the graph itself, so each one has
-an answer the records settle: who actually knows a system, what it depends on at any depth, what breaks and how many,
-whether a decision still holds.
-
-The same model (Claude Haiku 5.5) answers each question twice. Once as Orion, with the graph tools. Once as a typical
-retrieval assistant, reading the 15 records that full-text search ranks highest for the question. Both are graded the
-same way.
-
-- **Orion: 28 of 29 correct (97%)**, with one made-up name across all its answers.
-- **Same model, reading records: 8 of 29 (28%)**, with 15 made-up names.
-
-Two caveats, and both favour Orion: the baseline is plain keyword search, not a tuned embedding pipeline, and the
-questions come from the graph, which is home ground for a graph tool. So read 97 against 28 as "these questions need
-a graph", not "retrieval is useless".
-
-The gap is widest on "who actually knows this system" (8 of 8 against 0 of 8) and "what does it depend on" (5 of 5
-against 0 of 5). Both are multi-hop questions, and no pile of retrieved documents answers them. On "what did we decide"
-questions the baseline got all six right too, which makes sense: a decision is usually written down in one place.
-Every question and both answers are on the Proof screen if you want to check my grading.
-
-![Proof: Orion against the same model reading the same records](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/proof.jpg)
-
-## Answers that can be taken back
-
-Orion's assistant, the **Navigator**, answers by calling graph tools, the same traversals and algorithms as above,
+Orion's assistant, the **Navigator**, answers by calling graph tools: the same traversals and algorithms as above,
 plus forking universes. Every read tool goes through `GRAPH.RO_QUERY`, so a confused model can't write to the company.
 
-Every sentence that states a fact has to come with a typed claim: `breaks`, `orphans`, `approvers`, `knows`, `owns`,
-`depends_on`, `decided`, `count` or `metric`. A separate **Verifier** runs each claim as a query and compares the exact
-set or number. "invoice-render and reports-legacy stop working" is a `breaks` claim with two services, checked against
-the universe. Two rules took a while to get right:
+Every sentence that states a fact has to come with a typed claim: `breaks`, `knows`, `depends_on`, `count` and a few
+more. A separate **Verifier** runs each claim as a query and compares the exact set or number. "invoice-render and
+reports-legacy stop working" is a `breaks` claim with two services, checked against the universe. A name that matches
+nothing in the graph is **unsupported**, never "not true": Orion doesn't know it's false, it just can't find it.
 
-- A name that matches nothing in the graph is **unsupported**, never "not true". Orion doesn't know it's false. It just
-  can't find it.
-- Anything said without a typed claim is only ever *judged* by a model, on the rows it cites, and it's labelled that
-  way.
-
-Then there's what happens after an answer is given. The Answer and its Claims go into the org graph. Each claim keeps
-the uids of the facts its evidence rested on, and gets a `READ` edge to every node it looked at:
+The answer and its claims are then stored in the record. Each claim keeps the uids of the facts its evidence rested
+on, and gets a `READ` edge to every node it looked at:
 
 ```
 (:Person)-[:ASKED]->(:Answer)-[:MAKES]->(:Claim {facts: [...]})-[:READ]->(:Service)
 ```
 
 Now Tomasz posts in #billing: *"BILL-207 is merged: invoice-render now gets its signing token from identity. It no
-longer calls sso-legacy at all."*
-
-The **Cartographer** reads that message and proposes two changes of fact. The **Sentinel** decides whether to believe
-them. Tomasz is on Billing, and Billing owns invoice-render, so his word counts for 0.95. Someone from another team
-would get 0.65, and hedging ("I think...") multiplies by 0.7. High enough, and the Sentinel closes the old dependency
-and opens the new one, with the message as their source.
-
-Then one query finds every answer that relied on the closed fact:
+longer calls sso-legacy at all."* One agent reads the message and proposes two changes of fact. Another decides
+whether to believe them. Tomasz is on Billing, which owns invoice-render, so his word counts for more than an
+outsider's would, and hedging ("I think...") counts for less. It closes the old dependency and opens the new one, with
+the message as their source. Then one query finds every answer that relied on the closed fact:
 
 ```cypher
 MATCH (a:Answer {status: 'fresh'})-[:MAKES]->(c:Claim)
@@ -231,54 +241,83 @@ WHERE $fact_uid IN coalesce(c.facts, [])
 RETURN DISTINCT a.uid AS uid
 ```
 
-Each one is re-checked by the graph, with no model call. Only claims whose check now fails change. Priya, who asked
-about sso-legacy earlier, gets an inbox note saying which of her points stopped being true and which message changed
-them. Switching off sso-legacy now only breaks reports-legacy: risk 26.
+Each one is re-checked by the graph, with no model call. Priya gets an inbox note saying which of her points stopped
+being true and which message changed them. Switching off sso-legacy now only stops reports-legacy: risk 26.
 
 ![Inbox: an answer that stopped being true, and the message that changed it](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/inbox.jpg)
 
 Most assistants give you an answer and forget about it. Orion keeps its answers, and so it knows when it has to take
 one back.
 
-The agents never call each other. They share a board that is its own graph: a what-if is a `:Task` node, and
-claiming one is a single write query, which FalkorDB serializes, so two workers can't both win it. Memory is a graph
-per person. Each turn in `mem:corvane:priya-raman` points at the nodes it was about, so when Priya asks about
-invoice-render a week later, her sso-legacy conversation comes back through a join on that node, not keyword luck.
+## I tested whether any of this helped
 
-## Things that bit me
+One good story isn't evidence, so I ran a head-to-head. Here's exactly what it is, because the details decide what the
+result means.
+
+**The questions.** Orion generates 29 questions from the graph, of five kinds: who actually knows a system, what it
+depends on at any depth, what breaks if it's switched off, how many, and whether a decision still holds. The true
+answer to each is computed by a graph query.
+
+**The contestants.** The same model, Claude Haiku 5.5, answers every question twice: once as Orion, with the graph
+tools, and once given the 15 records that full-text search ranks highest for the question, the way a simple retrieval
+assistant would see the company.
+
+**The grading.** No model grades anything. The names in each answer are resolved against the graph and compared with
+the true set exactly; a name that isn't in the truth counts against the answer. Number questions take the first number given,
+and decision questions take the status word.
+
+**The results**, over three runs:
+
+| Run | Orion | Same model, keyword retrieval |
+|---|---|---|
+| 15 Oct (the one on the Proof screen) | 28 of 29 (97%) | 8 of 29 (28%) |
+| 16 Oct | 24 of 29 (83%) | 5 of 29 (17%) |
+| 16 Oct | 26 of 29 (90%) | 7 of 29 (24%) |
+| **All three** | **78 of 87 (90%)** | **20 of 87 (23%)** |
+
+So the 97% is Orion's best run, not its typical one. I read all nine of Orion's misses by hand. Eight were the grader
+being strict: "no longer in force" read as "in force", "14 break and 7 more degrade, 21 in total" read as 14, and a
+system named in a side remark ("web-console relies on build-scheduler") counted as part of the answer. One was a real
+mistake: Orion said onboarding relies on 10 systems and named only two of them. I haven't hand-checked the baseline's
+67 misses, and the same strictness surely costs it some too, so the raw numbers are the fair comparison.
+
+The gap is widest on "who actually knows this system" (24 of 24 across the three runs, against 0) and "what does it
+depend on" (12 of 15, against 0). The baseline's misses there follow a pattern. On "who knows", it usually named the
+right people plus others the retrieved records mentioned, and where nobody knows a system any more, it named someone
+anyway. On "what does it depend on", it found one or two systems, or none, out of as many as 16. On "what did we
+decide" it did as well as Orion (16 of 18 each), which makes sense, since a decision is usually written down in one
+place.
+
+**What this shows, and what it doesn't.** It shows a large advantage for graph tools on these graph-derived questions,
+against this baseline. It isn't a general accuracy claim. The questions come from the graph, which is home ground for
+Orion. The baseline is keyword search, with no embeddings or hybrid retrieval. Twenty-nine questions is a small set:
+one answer moves accuracy by 3.4 points. And there are no hand-written questions, and none where the right answer is
+"I don't know". A stronger retrieval baseline and a hand-written set are the next things I'd add.
+
+The code is [evals.py](https://github.com/Sumit99589/orion/blob/main/backend/src/orion/evals.py), and every question
+with both answers is in [eval_results.json](https://github.com/Sumit99589/orion/blob/main/backend/src/orion/eval_results.json)
+and on the Proof screen. `uv run python -m orion.evals` reruns it in a few minutes.
+
+## What broke while building it
 
 **FalkorDB Cloud only lets you run graph commands.** Locally I'd been keeping small bits of state in plain Redis keys:
 tenant clocks, version counters, a cache, locks around universes. On the cloud instance those commands are refused. I
 moved all of it into an `orion:meta` graph: `KV` nodes with an optional expiry, and `Lock` nodes taken with a single
-`MERGE`. Since writes to a graph are serialized, counters and locks stayed atomic, and it ended up cleaner than the
-Redis version.
+`MERGE`. Writes to a graph run one at a time, so counters and locks stayed atomic, and it ended up cleaner than the
+Redis version. The same property lets the agents share a task board in a graph: claiming a task is one write query, so
+two workers can never both win it.
 
 **`GRAPH.COPY` on the cloud forks the server process, and refuses a second fork while one runs.** The safe path was
-making its copies in parallel, which worked fine on my laptop and failed on the deployed instance. Copies now take turns
-(the scoring on each copy still runs side by side), and a copy refused mid-fork is retried.
+making its copies in parallel, which worked fine on my desktop and failed on the deployed instance. Copies now take
+turns (the scoring on each copy still runs side by side), and a copy refused mid-fork is retried. Taking turns, plus
+network round trips, is why the same search takes ten seconds there and one on my desktop.
 
-**Round trips add up.** Against a local database, checking a dozen claims one after another is instant. Against a
-remote one, the latency adds up to seconds. The Verifier now checks claims side by side and caches the name resolver
-until the records change.
+## Try changing a company without breaking one
 
-**Free hosting sleeps.** The API runs on Render's free tier, which spins down after a while. A GitHub Action pings it
-every ten minutes, and if it's asleep anyway, the web app says "Waking the API, about a minute" with a counter instead
-of showing a broken screen.
-
-## Try it
-
-The live demo opens on a real answer Priya got about switching off sso-legacy, with every claim marked. **Start here**
-walks through the three moments in about two minutes: open the what-if and find the safe path, post Tomasz's message
-and watch the answer go stale, then replay INC-311.
-
-You can also point it at any public GitHub repository: contributors become people, folders become modules, CODEOWNERS
-entries become teams and imports become dependencies, so every screen works on real code too.
-
-- Live: https://orion-gamma-six.vercel.app
-- Code, setup and the full graph model: https://github.com/Sumit99589/orion
-
-The README covers running it locally (Docker, uv and Node) and the MCP server, which gives Claude Desktop or Cursor
-the same graph tools. An agent there can propose a change, but it can't approve its own.
+- **Live:** https://orion-gamma-six.vercel.app. Break something, fix the knowledge, travel back in time: the
+  **Start here** panel walks you through all three in about two minutes.
+- **Code, setup and the full graph model:** https://github.com/Sumit99589/orion. It runs locally with Docker, uv and
+  Node, and it can also load any public GitHub repository as a company.
 
 The thing I keep coming back to is how much of this came from one cheap operation. Once copying a whole company costs
 60 milliseconds, "what if" stops being a meeting and becomes a query.

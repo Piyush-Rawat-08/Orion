@@ -1,16 +1,23 @@
 # Render's free plan puts the API to sleep after 15 minutes without a request, and the first visitor after that waits
-# about a minute. Judging runs through the deadline week, so a request every ten minutes keeps it awake.
+# about a minute. GitHub runs scheduled workflows late and sometimes skips them (a */10 schedule fired once in two
+# and a half hours), so each run stays up for almost six hours and pings every eight minutes. A run starts every three
+# hours, so even a late one overlaps the run before it.
 name: keep the API awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "7 */3 * * *"
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 355
     steps:
-      - name: health check
-        run: curl -fsS --retry 3 --retry-delay 20 --max-time 90 https://orion-api-tk3u.onrender.com/api/health
+      - name: health check every eight minutes
+        run: |
+          for i in $(seq 1 43); do
+            curl -sS -o /dev/null -w "%{http_code} %{time_total}s\n" --retry 3 --retry-delay 20 --max-time 90 \
+              https://orion-api-tk3u.onrender.com/api/health || true
+            sleep 480
+          done
