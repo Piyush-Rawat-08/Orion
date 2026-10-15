@@ -140,6 +140,45 @@ def check(db: dbm.DB, t: str, claim: dict, today: bool = False, asof: str | None
         if extra:
             out = {**out, "verdict": "partial",
                    "reason": f"{out['reason']}; the sentence also names {extra}, which this check didn't cover"}
+    if text and out["verdict"] == "verified" and out.get("effects"):
+        wrong = effect_mismatch(text, out["effects"])
+        if wrong:
+            out = {**out, "verdict": "partial", "reason": f"the right systems, but {'; '.join(wrong)}"}
+    out.pop("effects", None)
+    return out
+
+
+# how a sentence says what happens to a system; softer phrases first, so "slow down" and "partly fail" aren't read
+# as "down" and "fail"
+EFFECT_WORDS = re.compile(r"\b(partly fail\w*|partially fail\w*|slow\w*(?: down)?|degrad\w*|lag\w*|delay\w*|queue\w*|"
+                          r"stale|out of date|go(?:es)? stale|stop\w*(?: working)?|break\w*|broke\w*|fail\w*|"
+                          r"go(?:es)? down|outage|unavailable|offline|dead)\b", re.I)
+EFFECT_SAID = {"break": "stops working", "degrade": "slows down", "stale": "goes stale"}
+EFFECT_DO = {"break": "stop working", "degrade": "slow down", "stale": "go stale"}
+
+
+def _said(word: str) -> str:
+    w = word.lower()
+    if w.startswith(("partly", "partially", "slow", "degrad", "lag", "delay", "queue")):
+        return "degrade"
+    if "stale" in w or w == "out of date":
+        return "stale"
+    return "break"
+
+
+def effect_mismatch(text: str, effects: dict[str, str]) -> list[str]:
+    """For each system, the effect word nearest its name in the sentence, against the effect the graph computed.
+    A sentence with no effect word at all says nothing about severity, so it can't get it wrong."""
+    words = [(m.start(), m.end(), _said(m.group(1))) for m in EFFECT_WORDS.finditer(text)]
+    if not words:
+        return []
+    out = []
+    for name, effect in effects.items():
+        for m in re.finditer(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.I):
+            near = min(words, key=lambda w: min(abs(w[0] - m.end()), abs(m.start() - w[1])))
+            if near[2] != effect:
+                out.append(f"{name} {EFFECT_SAID[effect]}, it doesn't {EFFECT_DO[near[2]]}")
+            break
     return out
 
 
@@ -200,8 +239,10 @@ def _check(db: dbm.DB, t: str, claim: dict, today: bool, asof: str | None) -> di
         claimed = {_uid(db, ug, "Service", o) for o in objects}
         verdict, why = _set_verdict(claimed, set(reach), exhaustive, lambda x: _names(db, ug, x))
         return {"verdict": verdict, "reason": why,
+                "effects": {reach[u].name: reach[u].effect for u in claimed if u in reach},
                 "check": receipt(ug, "broken_detail", {"edges": sorted({e for r in reach.values() for e in r.edges})},
-                                 {"broken": _names(db, ug, set(reach))},
+                                 {"broken": _names(db, ug, set(reach)),
+                                  "effects": {r.name: r.effect for r in reach.values()}},
                                  "breadth-first over DEPENDS_ON from every :Retired service; each witness path re-runs as:\n"
                                  + cypher("broken_detail"))}
 
@@ -384,3 +425,64 @@ def _measure(db: dbm.DB, t: str, g: str, measure: str | None, subject: str) -> t
         return float(len(reach)), receipt(g, measure, {"s": s}, {measure: len(reach), "services": _names(db, g, set(reach))},
                                           f"breadth-first over DEPENDS_ON ({measure}), any depth")
     raise CheckError(f"unknown measure {measure!r}", "unverified")
+
+
+# ---------------------------------------------------------------- the summary, held to the checked points
+
+NUMBER = re.compile(r"(?<![\w:./-])(\d{1,3}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                    r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?![\w:./-])", re.I)
+WORDNUM = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                       "fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
+
+
+def _numbers(text: str) -> set[int]:
+    return {int(x) if x.isdigit() else WORDNUM[x.lower()] for x in NUMBER.findall(text or "")}
+
+
+def _counted(text: str) -> set[tuple[int, str]]:
+    """Each number with the word after it ("7 systems" -> (7, 'system')), so seven customers don't back seven systems."""
+    out = set()
+    for m in NUMBER.finditer(text or ""):
+        word = re.match(r"\W*([a-z]+)", text[m.end():].lower())
+        x = m.group(1)
+        out.add((int(x) if x.isdigit() else WORDNUM[x.lower()], (word.group(1).rstrip("s") if word else "")))
+    return out
+
+
+def summary_check(db: dbm.DB, t: str, summary: str, verdicts: list[dict]) -> dict:
+    """The summary isn't a claim of its own, so it is held to the claims that were checked: every person, system,
+    customer or decision it names, every number it gives and every effect it states must be in a point the graph
+    verified. {covered, issues}: what the summary says that no verified point backs."""
+    ok = [v for v in verdicts if v.get("verdict") == "verified"]
+    if not summary:
+        return {"covered": True, "issues": []}
+    if not ok:
+        return {"covered": False, "issues": ["isn't backed by any point the graph verified"]}
+    uids, names, nums, counted, effects = set(), set(), set(), set(), {}
+    for v in ok:
+        uids |= {m["uid"] for m in mentioned(db, t, v.get("text") or "", MENTION_LABELS)}
+        result = (v.get("check") or {}).get("result")
+        names |= {x.lower() for x in _strings(result)}
+        value = v.get("value") if v.get("value") is not None else (v.get("typed") or {}).get("value")
+        counted |= _counted(v.get("text") or "")
+        nums |= _sizes(result) | ({int(float(value))} if _num(value) is not None else set())
+        effects |= ((result or {}).get("effects") or {}) if isinstance(result, dict) else {}
+    issues = []
+    unnamed = sorted({m["name"] for m in mentioned(db, t, summary, MENTION_LABELS)
+                      if m["uid"] not in uids and m["name"].lower() not in names})
+    if unnamed:
+        issues.append(f"names {', '.join(unnamed)}, which no verified point covers")
+    loose = sorted({n for n, w in _counted(summary) if n not in nums and (n, w) not in counted})
+    if loose:
+        issues.append(f"gives {', '.join(map(str, loose))}, which no verified point establishes")
+    issues += [f"gets an effect wrong ({x})" for x in effect_mismatch(summary, effects)]
+    return {"covered": not issues, "issues": issues}
+
+
+def _sizes(v) -> set[int]:
+    """How many things each list in a check's result holds: "five systems" is backed by a verified set of five."""
+    if isinstance(v, dict):
+        return set().union(*(_sizes(x) for x in v.values())) if v else set()
+    if isinstance(v, (list, tuple, set)) and v and all(isinstance(x, str) for x in v):
+        return {len(v)}
+    return set()

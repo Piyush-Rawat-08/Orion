@@ -274,6 +274,9 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
         emit({"type": "verdict", "agent": "verifier", "index": v["index"], "verdict": v["verdict"], "reason": v["reason"],
               "kind": v.get("kind"), "check": v.get("check")})
 
+    # the headline is held to the points the graph verified, so it can't say more than they do
+    summary_check = typed.summary_check(db, t, submitted.get("summary", ""), verdicts)
+
     answer_uid = f"answer:{secrets.token_hex(5)}"
     by_eid = {e["eid"]: e for e in ctx.evidence}
     rows = []
@@ -298,6 +301,7 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
                                success=bool(claims) and good >= len(claims) / 2, qtype=qtype)
     result = {
         "answer": answer_uid, "session": session, "question": question, "summary": submitted.get("summary", ""),
+        "summary_check": summary_check,
         "claims": [{**v, "uid": r["uid"], "facts": r["facts"], "nodes": json.loads(r["nodes"]), "typed": json.loads(r["typed"])}
                    for v, r in zip(verdicts, rows)],
         "follow_ups": follow_ups, "evidence": ctx.evidence, "tool_calls": ctx.calls,
@@ -311,11 +315,11 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
     db.q(dbm.org(t), """MATCH (a:Answer {uid: $a}) SET a.qnorm = $q, a.version = $v, a.payload = $p, a.shared = $shared""",
          {"a": answer_uid, "q": None if acted else _normalize(question), "v": dbm.version(db, t),
           "shared": user is None or not _personal(question),
-          "p": json.dumps({k: result[k] for k in ("summary", "claims", "follow_ups", "evidence", "universes", "graph")}, default=str)})
+          "p": json.dumps({k: result[k] for k in ("summary", "summary_check", "claims", "follow_ups", "evidence", "universes", "graph")}, default=str)})
     good = sum(1 for v in verdicts if v["verdict"] == "verified")
     blackboard.complete(db, t, ctx.task, {"answer": answer_uid}, f"{answer_uid}: {len(claims)} claim(s), {good} verified by the graph")
     result["task"] = ctx.task
-    emit({"type": "answer", **{k: result[k] for k in ("answer", "summary", "claims", "follow_ups", "ms", "graph")}})
+    emit({"type": "answer", **{k: result[k] for k in ("answer", "summary", "summary_check", "claims", "follow_ups", "ms", "graph")}})
     return result
 
 
@@ -422,7 +426,8 @@ def _reuse(db: dbm.DB, t: str, question: str, user: str | None, session: str | N
               "kind": c.get("kind"), "check": c.get("check")})
     result = {"answer": uid, "session": session, "question": question, **payload, "tool_calls": [], "asof": now,
               "ms": round((time.perf_counter() - t0) * 1000), "reused": True, "usage": {"input": 0, "output": 0, "cache_read": 0}}
-    emit({"type": "answer", **{k: result[k] for k in ("answer", "summary", "claims", "follow_ups", "ms")}, "reused": True})
+    emit({"type": "answer", **{k: result.get(k) for k in ("answer", "summary", "summary_check", "claims", "follow_ups", "ms")},
+          "reused": True})
     return result
 
 

@@ -43,13 +43,20 @@ def seed(db: dbm.DB, t: str, user: str = ASKER) -> str | None:
     now = dbm.clock(db, t)
     answer_uid = f"answer:{secrets.token_hex(5)}"
     claims = [{**c, "uid": f"{answer_uid}:c{c['index']}"} for c in rec["claims"]]
+    # the recording predates breaks checks saying how each system is hit; read it off the what-if just made
+    for c in claims:
+        g = (c.get("check") or {}).get("graph") or ""
+        if (c.get("typed") or {}).get("kind") == "breaks" and g.startswith("universe:") and db.exists(g):
+            c["check"] = {**c["check"], "result": {**(c["check"].get("result") or {}),
+                                                   "effects": {r.name: r.effect for r in uv.broken_in(db, g).values()}}}
     rows = [{"uid": c["uid"], "text": c["text"], "verdict": c["verdict"], "reason": c["reason"],
              "evidence": json.dumps(c["evidence"]), "facts": c["facts"], "nodes": json.dumps(c["nodes"][:80]),
              "reads": sorted(set(c["nodes"]) | _typed_reads(db, t, c["typed"])), "kind": c.get("kind", "free"),
              "typed": json.dumps(c["typed"]), "check": json.dumps(c["check"], default=str) if c.get("check") else None}
             for c in claims]
     persist(db, t, answer_uid, rec["question"], user, now, rec["summary"], rows)
-    payload = {"summary": rec["summary"], "claims": claims, "follow_ups": rec["follow_ups"], "evidence": rec["evidence"],
+    payload = {"summary": rec["summary"], "summary_check": typed.summary_check(db, t, rec["summary"], claims),
+               "claims": claims, "follow_ups": rec["follow_ups"], "evidence": rec["evidence"],
                "universes": rec["universes"], "graph": rec.get("graph")}
     db.q(dbm.org(t), "MATCH (a:Answer {uid: $a}) SET a.qnorm = $q, a.version = $v, a.payload = $p, a.shared = true",
          {"a": answer_uid, "q": _normalize(rec["question"]), "v": dbm.version(db, t), "p": json.dumps(payload, default=str)})

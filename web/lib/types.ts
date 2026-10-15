@@ -154,11 +154,18 @@ export interface ToolCall {
   evidence: string[];
 }
 
+/** The summary held to the verified points: anything it names, counts or says happens that none of them backs. */
+export interface SummaryCheck {
+  covered: boolean;
+  issues: string[];
+}
+
 export interface AskResult {
   answer: string;
   session: string | null;
   question: string;
   summary: string;
+  summary_check?: SummaryCheck;
   claims: Claim[];
   follow_ups: string[];
   evidence: Evidence[];
@@ -501,7 +508,7 @@ export interface LastSession {
     at: string;
     answer: string;
     status: string;
-    result: Pick<AskResult, "summary" | "claims" | "follow_ups" | "evidence" | "universes" | "graph">;
+    result: Pick<AskResult, "summary" | "summary_check" | "claims" | "follow_ups" | "evidence" | "universes" | "graph">;
   }[];
 }
 

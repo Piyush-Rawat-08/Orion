@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { get, setApiUser } from "@/lib/api";
 import { postStream } from "@/lib/sse";
-import type { AskResult, Claim, GraphUse, ClaimCheck, GEdge, GNode, LastSession, Notification, Person, Tenant, Verdict } from "@/lib/types";
+import type { AskResult, Claim, GraphUse, ClaimCheck, GEdge, GNode, LastSession, Notification, Person, SummaryCheck, Tenant, Verdict } from "@/lib/types";
 
 export type Step =
   | { id: number; kind: "status"; agent: string; text: string }
@@ -34,7 +34,15 @@ export interface Turn {
   status: "streaming" | "done" | "error";
   steps: Step[];
   verdicts: Record<number, { verdict: Verdict; reason: string; check?: ClaimCheck | null }>;
-  answer?: { answer?: string; summary: string; claims: Claim[]; follow_ups: string[]; ms: number; graph?: GraphUse | null };
+  answer?: {
+    answer?: string;
+    summary: string;
+    summary_check?: SummaryCheck;
+    claims: Claim[];
+    follow_ups: string[];
+    ms: number;
+    graph?: GraphUse | null;
+  };
   result?: AskResult;
   error?: string;
   /** brought back from an earlier visit: when it was asked, and whether its answer still holds */

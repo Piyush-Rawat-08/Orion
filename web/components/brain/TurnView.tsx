@@ -10,7 +10,7 @@ import { Spinner, UniverseTag, VerdictMark } from "../ui";
 import { useFetch } from "@/lib/hooks";
 import { fmtDate, fmtMs, plural } from "@/lib/format";
 import { C, riskColor, universeAccent, VERDICT_COLORS } from "@/lib/theme";
-import type { Claim, ClaimCheck, Evidence, GraphUse, UniverseDetail, Verdict } from "@/lib/types";
+import type { Claim, ClaimCheck, Evidence, GraphUse, SummaryCheck, UniverseDetail, Verdict } from "@/lib/types";
 import { TimeScrubber, WatchButton, type Dated } from "./AnswerTools";
 import { AGENT_WORD, CHECK_LONG, CHECK_SHORT, checkReason, factWords, scenarioLabel, statusWords, toolWords } from "@/lib/words";
 
@@ -414,11 +414,32 @@ function GraphWork({ work, total }: { work: GraphUse; total?: number }) {
   );
 }
 
+/** Under the headline: whether everything it says is backed by a point the graph verified, and if not, what isn't. */
+function SummaryLine({ check }: { check: SummaryCheck }) {
+  return (
+    <p className={`-mt-1 flex items-start gap-1.5 text-[12px] leading-relaxed ${check.covered ? "text-muted" : "text-warn"}`}>
+      <svg width="12" height="12" viewBox="0 0 12 12" className={`mt-[3px] shrink-0 ${check.covered ? "text-ok" : "text-warn"}`} aria-hidden>
+        {check.covered ? (
+          <path d="M2.5 6.2 5 8.6l4.6-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <path d="M6 2.2v4.6M6 9.2v.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        )}
+      </svg>
+      <span>
+        {check.covered
+          ? "Every name, number and effect in this summary is in a point the graph verified below."
+          : `Not checked: this summary ${check.issues.join("; ")}.`}
+      </span>
+    </p>
+  );
+}
+
 export default function TurnView({ turn, latest = false }: { turn: Turn; latest?: boolean }) {
   const { ask, asking, personName, llm, highlight, pinHighlight, staleAnswers } = useApp();
   const evidence = useMemo(() => new Map((turn.result?.evidence ?? []).map((e) => [e.eid, e])), [turn.result]);
   const claims = turn.result?.claims ?? turn.answer?.claims ?? [];
   const summary = turn.result?.summary ?? turn.answer?.summary;
+  const summaryCheck = turn.result?.summary_check ?? turn.answer?.summary_check;
   const followUps = turn.result?.follow_ups ?? turn.answer?.follow_ups ?? [];
 
   const universes = useMemo(() => {
@@ -515,6 +536,7 @@ export default function TurnView({ turn, latest = false }: { turn: Turn; latest?
           {summary}
         </motion.p>
       )}
+      {summary && summaryCheck && turn.status === "done" && <SummaryLine check={summaryCheck} />}
 
       {universes.length > 0 && (
         <section aria-label="What-ifs" className="space-y-2">
