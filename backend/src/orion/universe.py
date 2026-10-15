@@ -667,6 +667,8 @@ def discard(db: dbm.DB, t: str, uid: str, by: str = "cli", reason: str = "") -> 
 
 def gc(db: dbm.DB, t: str, keep: int = 30) -> int:
     """Discard the oldest open what-ifs beyond `keep`. Proposals awaiting approval are never collected."""
+    if not db.exists(dbm.deck(t)):
+        return 0
     every = [u for u in list_universes(db, t) if u["status"] == "open" and u["kind"] != "dryrun"]
     n = 0
     for u in every[keep:]:

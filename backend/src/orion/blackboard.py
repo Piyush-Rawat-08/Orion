@@ -72,8 +72,17 @@ def post(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", f
     return uid
 
 
+def _existing_deck(db: dbm.DB, t: str) -> str | None:
+    """The deck, only if the tenant has one: workers and housekeeping never create it (a tenant deleted while they
+    were looping would otherwise come back as an empty deck)."""
+    g = dbm.deck(t)
+    return g if db.exists(g) else None
+
+
 def claim(db: dbm.DB, t: str, agent: str, kinds: list[str], uid: str | None = None) -> dict | None:
-    g = _deck(db, t)
+    g = _existing_deck(db, t)
+    if not g:
+        return None
     with dbm.tagged("board"):
         if uid:
             rows = db.q(g, """MATCH (x:Task {uid: $u}) WHERE x.status = 'open'
@@ -234,17 +243,21 @@ def release_dead(db: dbm.DB, t: str) -> int:
     with dbm.tagged("board"):
         dead = [r["n"] for r in db.ro(POOL, "MATCH (a:Agent) WHERE a.heartbeat_at < $since RETURN a.name AS n",
                                       {"since": now_ms() - DEAD_AFTER_S * 1000})]
-        if not dead:
+        g = _existing_deck(db, t)
+        if not dead or not g:
             return 0
-        rows = db.q(_deck(db, t), """MATCH (x:Task {status: 'claimed'}) WHERE x.claimed_by IN $d
+        rows = db.q(g, """MATCH (x:Task {status: 'claimed'}) WHERE x.claimed_by IN $d
                                      SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END
                                      RETURN count(x) AS n""", {"d": dead, "max": MAX_ATTEMPTS})
         return rows[0]["n"] if rows else 0
 
 
 def retention(db: dbm.DB, t: str, days: int = 7) -> int:
+    g = _existing_deck(db, t)
+    if not g:
+        return 0
     with dbm.tagged("board"):
-        rows = db.q(_deck(db, t), """MATCH (x:Task) WHERE x.status IN ['done', 'dead'] AND x.done_at < $cut
+        rows = db.q(g, """MATCH (x:Task) WHERE x.status IN ['done', 'dead'] AND x.done_at < $cut
                                      OPTIONAL MATCH (x)-[:PRODUCED]->(f) DETACH DELETE x, f RETURN count(*) AS n""",
                     {"cut": now_ms() - days * 86400_000})
         return rows[0]["n"] if rows else 0
