@@ -253,7 +253,7 @@ export const DISK_FRAG = /* glsl */ `
     // one side brighter, as light from matter moving toward you is
     float doppler = 0.65 + 0.55 * cos(ang - 0.6);
     float a = smoothstep(1.0, 0.75, r) * smoothstep(uIn, uIn + 0.06, r) * (0.35 + swirl * 0.9 + streak * 0.35);
-    gl_FragColor = vec4(col * doppler * (0.9 + heat * 1.8), clamp(a, 0.0, 1.0));
+    gl_FragColor = vec4(col * doppler * (0.45 + heat * 0.9), clamp(a * 0.8, 0.0, 1.0));
   }
 `;
 
@@ -266,7 +266,7 @@ export const PHOTON_FRAG = /* glsl */ `
     float ring = exp(-pow((d - 0.62) * 26.0, 2.0));
     float glow = exp(-pow((d - 0.62) * 6.0, 2.0)) * 0.35;
     float flick = 0.9 + 0.1 * sin(uTime * 3.0 + atan(p.y, p.x) * 5.0);
-    gl_FragColor = vec4(vec3(1.0, 0.86, 0.66) * flick, (ring + glow));
+    gl_FragColor = vec4(vec3(1.0, 0.86, 0.66) * flick * 0.8, (ring + glow * 0.5) * 0.85);
   }
 `;
 

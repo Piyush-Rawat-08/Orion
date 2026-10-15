@@ -719,7 +719,7 @@ export class Cosmos {
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: { uTime: { value: 0 }, uIn: { value: 0.28 } },
     });
     const disk = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), diskMat);
-    disk.rotation.x = -Math.PI / 2 + 0.32;
+    disk.rotation.x = -Math.PI / 2 + 0.55;
     group.add(disk);
     const photonMat = new THREE.ShaderMaterial({
       vertexShader: S.NEBULA_VERT, fragmentShader: S.PHOTON_FRAG, transparent: true, depthWrite: false,

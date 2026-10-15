@@ -127,8 +127,7 @@ def meta(tenant: str, s: Session = Depends(session)):
     me = uv.who(d, tenant, s.user)
     unread = d.one(uv._deck(d, tenant), "MATCH (n:Notification {user: $u, read: false}) RETURN count(n) AS n",
                    {"u": s.user})["n"]
-    waiting = d.one(uv._deck(d, tenant), """MATCH (u:Universe {status: 'open'}) WHERE $team IN u.required
-                                            RETURN count(u) AS n""", {"team": me["team"]})["n"]
+    waiting = len(_waiting(d, tenant, me["team"]))
     return {"company": row["name"], "tenant": tenant, "clock": dbm.clock(d, tenant), "version": dbm.version(d, tenant),
             "me": me, "llm": llm.info(), "unread": unread, "waiting": waiting}
 
@@ -374,10 +373,16 @@ def inbox(tenant: str, s: Session = Depends(session)):
     notes = d.ro(uv._deck(d, tenant), """MATCH (n:Notification {user: $u}) RETURN n ORDER BY n.at DESC LIMIT 40""",
                  {"u": s.user})
     me = uv.who(d, tenant, s.user)
-    waiting = d.ro(uv._deck(d, tenant), """MATCH (u:Universe {status: 'open'}) WHERE $team IN u.required
-                                           RETURN u.uid AS uid, u.title AS title, u.risk AS risk, u.level AS level,
-                                                  u.by AS by, u.created_at AS at""", {"team": me["team"]})
-    return {"notifications": [n["n"] for n in notes], "approvals": waiting}
+    return {"notifications": [n["n"] for n in notes], "approvals": _waiting(d, tenant, me["team"])}
+
+
+def _waiting(d: dbm.DB, tenant: str, team: str) -> list[dict]:
+    """Plans that need this team's approval and don't have it yet."""
+    return d.ro(uv._deck(d, tenant), """MATCH (u:Universe {status: 'open', kind: 'plan'}) WHERE $team IN u.required
+                                        OPTIONAL MATCH (a:Approval {team: $team}) WHERE a.universe = u.uid
+                                        WITH u, count(a) AS given WHERE given = 0
+                                        RETURN u.uid AS uid, u.title AS title, u.risk AS risk, u.level AS level,
+                                               u.by AS by, u.created_at AS at ORDER BY at DESC""", {"team": team})
 
 
 @app.post("/api/{tenant}/inbox/read")

@@ -36,6 +36,7 @@ export function CosmosProvider({ children }: { children: React.ReactNode }) {
       e.onHover = (n, x, y) => setHover(n ? { n, x, y } : null);
       e.onSelect = (n) => handlers.current.select?.(n);
       setEngine(e);
+      (window as unknown as { __orion?: unknown }).__orion = e; // handy in the console: __orion.flyTo("svc:ledger")
     });
     return () => {
       cancelled = true;
