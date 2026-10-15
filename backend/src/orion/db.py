@@ -128,11 +128,21 @@ class DB:
         return bool(self.redis.exists(name))
 
     def copy(self, src: str, dst: str) -> float:
-        """GRAPH.COPY; returns how long it took, in milliseconds."""
+        """GRAPH.COPY; returns how long it took, in milliseconds. Some servers (FalkorDB Cloud) fork the process to
+        copy, and only one fork can run at a time: copies are taken one after another (the work on them can still run
+        side by side), and a copy refused because the server is mid-fork is retried."""
         if self.exists(dst):
             self.delete(dst)
         t0 = time.perf_counter()
-        self.redis.execute_command("GRAPH.COPY", src, dst)
+        with _copy_lock:
+            for attempt in range(8):
+                try:
+                    self.redis.execute_command("GRAPH.COPY", src, dst)
+                    break
+                except Exception as e:
+                    if "fork" not in str(e).lower() or attempt == 7:
+                        raise
+                    time.sleep(0.15 * (attempt + 1))
         return (time.perf_counter() - t0) * 1000
 
     def delete(self, name: str) -> None:
@@ -222,6 +232,7 @@ def _rows(res) -> list[dict]:
 
 _db: DB | None = None
 _db_lock = threading.Lock()
+_copy_lock = threading.Lock()
 
 
 def get_db() -> DB:
