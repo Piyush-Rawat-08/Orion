@@ -27,6 +27,7 @@ POOL = "orion:pool"
 MAX_ATTEMPTS = 3
 HEARTBEAT_S = 5
 DEAD_AFTER_S = 30
+IDLE_MIN, IDLE_MAX = 0.25, 1.0
 
 
 def now_ms() -> int:
@@ -205,7 +206,7 @@ def run(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", fo
             task = claim(db, t, "inline", [kind], uid=uid)  # nobody took it: do it here
             if task:
                 return run_task(db, t, task, "inline")
-        time.sleep(0.1)
+        time.sleep(0.2)
     raise RuntimeError(f"{kind} task {uid} didn't finish in {timeout:.0f} s")
 
 
@@ -216,6 +217,7 @@ def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, te
     db = dbm.get_db()
     register(db, name, role, kinds)
     takes = kinds if takes is None else takes
+    idle = IDLE_MIN
     last = 0.0
     while not stop.is_set():
         did = False
@@ -236,8 +238,11 @@ def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, te
         if time.time() - last > HEARTBEAT_S:
             heartbeat(db, name, "idle")
             last = time.time()
-        if not did:
-            stop.wait(0.25)
+        if did:
+            idle = IDLE_MIN
+        else:  # poll less often the longer the board stays empty: a small host keeps its CPU for real work
+            stop.wait(idle)
+            idle = min(IDLE_MAX, idle * 1.5)
 
 
 def release_dead(db: dbm.DB, t: str) -> int:

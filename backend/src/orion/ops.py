@@ -72,9 +72,19 @@ def parse(text: str) -> dict:
     return op
 
 
+_resolvers: dict[tuple[str, int], Resolver] = {}
+
+
 def resolver(db: dbm.DB, graph: str) -> Resolver:
-    rows = db.ro(graph, "MATCH (a:Alias)-[:NAMES]->(n) RETURN a.text AS t, n.uid AS u, labels(n)[0] AS k")
-    return Resolver([(r["t"], r["u"], r["k"]) for r in rows])
+    """Names as people write them. Kept in memory until the tenant's records change."""
+    parts = graph.split(":")
+    key = (graph, dbm.version(db, parts[1]) if len(parts) > 1 else 0)
+    if key not in _resolvers:
+        rows = db.ro(graph, "MATCH (a:Alias)-[:NAMES]->(n) RETURN a.text AS t, n.uid AS u, labels(n)[0] AS k")
+        if len(_resolvers) > 64:
+            _resolvers.clear()
+        _resolvers[key] = Resolver([(r["t"], r["u"], r["k"]) for r in rows])
+    return _resolvers[key]
 
 
 LABEL_ALIASES = {"Service": ("Service", "Retired"), "Person": ("Person", "Former"), "Team": ("Team", "FormerTeam"),

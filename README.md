@@ -2,6 +2,8 @@
 
 **See the company before you change it.**
 
+Live: **https://orion-gamma-six.vercel.app** (the API sleeps when idle; the first load can take a minute).
+
 Orion keeps a company's people, teams, systems, decisions and conversations in one [FalkorDB](https://falkordb.com)
 graph. Before anyone switches off a system, loses a teammate or merges two teams, Orion copies the whole company
 graph into a parallel universe, makes the change there, and shows what breaks, which customers would notice, who has
@@ -113,7 +115,7 @@ cp .env.example .env.local
 pnpm install && pnpm dev --port 3001         # open http://localhost:3001
 ```
 
-Or everything in Docker: `docker compose --profile full up -d --build` (web on :3001). Deploying to Vercel, Railway
+Or everything in Docker: `docker compose --profile full up -d --build` (web on :3001). Deploying to Vercel, Render
 and FalkorDB Cloud: [docs/deploy.md](docs/deploy.md).
 
 Pick a person to act as from the top-right menu; there are no passwords in the demo, but the server signs a token
