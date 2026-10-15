@@ -200,7 +200,7 @@ function Multiverse() {
     <main className="pointer-events-none relative z-10 min-h-dvh">
       {/* builder */}
       <motion.aside initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.7, ease: EASE }}
-                    className="panel scroll-quiet pointer-events-auto fixed bottom-24 left-4 top-[88px] z-20 w-[calc(100vw-2rem)] overflow-y-auto rounded-xl p-4 md:bottom-6 md:left-6 md:w-[340px]">
+                    className={`panel scroll-quiet pointer-events-auto fixed bottom-24 left-4 top-[88px] z-20 w-[calc(100vw-2rem)] overflow-y-auto rounded-xl p-4 md:bottom-6 md:left-6 md:block md:w-[340px] ${u ? "hidden" : ""}`}>
         <h1 className="display text-[30px] italic leading-none">Multiverse</h1>
         <p className="mt-2 text-[12px] leading-relaxed text-muted">
           Fork the whole company into a parallel universe, change it there, and see what breaks before anyone has to.
@@ -312,7 +312,8 @@ function Multiverse() {
         {u && d && (
           <motion.aside key={u.uid + u.status + u.risk} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}
                         transition={{ duration: 0.6, ease: EASE }}
-                        className="panel scroll-quiet pointer-events-auto fixed bottom-24 right-4 top-[132px] z-20 hidden w-[390px] overflow-y-auto rounded-xl p-4 md:bottom-6 md:right-6 md:block">
+                        className="panel scroll-quiet pointer-events-auto fixed bottom-24 left-4 right-4 top-[88px] z-20 overflow-y-auto rounded-xl p-4 md:bottom-6 md:left-auto md:right-6 md:top-[132px] md:w-[390px]">
+            <button onClick={() => { setU(null); setUg(null); }} className="mono mb-2 text-[11px] text-amber md:hidden">← fork something else</button>
             <div className="mono flex justify-between text-[10px] text-faint">
               <span>UNIVERSE {u.uid.toUpperCase()} · {u.kind}{u.on ? ` · ${u.on} · as ${u.mode === "known" ? "known" : "it was"}` : ""}</span>
               <span>{u.status}</span>

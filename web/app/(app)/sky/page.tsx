@@ -29,6 +29,7 @@ export default function SkyPage() {
   const [team, setTeam] = useState<string | null>(null);
   const [story, setStory] = useState<string | null>(null);
   const [deps, setDeps] = useState(true);
+  const [askOpen, setAskOpen] = useState(false);
 
   useEffect(() => {
     setVeil(0);
@@ -172,10 +173,14 @@ export default function SkyPage() {
         </AnimatePresence>
       </div>
 
-      {/* navigator */}
-      <div className="fixed bottom-24 right-4 top-[88px] z-20 hidden items-start md:bottom-6 md:right-6 md:flex">
+      {/* navigator: docked on wide screens, a sheet on phones */}
+      <div className={`fixed bottom-24 right-4 top-[88px] z-30 items-start md:bottom-6 md:right-6 md:z-20 md:flex ${askOpen ? "left-4 flex" : "hidden"}`}>
         <AskDock onEvidence={(ids) => { engine?.setFocus(ids); engine?.setEvidence(ids); engine?.setAutoRotate(false); }} />
       </div>
+      <button onClick={() => setAskOpen((o) => !o)}
+              className="pointer-events-auto fixed bottom-[84px] right-4 z-30 rounded-full bg-amber px-4 py-2 text-[13px] text-void shadow-[0_0_40px_-8px_#ffb547] md:hidden">
+        {askOpen ? "Back to the sky" : "Ask the Navigator"}
+      </button>
 
       {/* legend: the arms */}
       {!selected && (
