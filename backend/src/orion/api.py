@@ -230,13 +230,18 @@ def _copy_of_corvane(db: dbm.DB, t: str) -> dict:
     return TENANTS[DEMO] | {"id": t, "personal": True, "clock": dbm.clock(db, t), "loaded": True}
 
 
+class DemoBody(BaseModel):
+    key: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]*$")
+
+
 @app.post("/api/demo")
-def new_demo(request: Request) -> dict:
-    """A copy of Corvane for one visitor, so what they change is theirs alone. Rate-limited per client."""
+def new_demo(request: Request, body: DemoBody | None = None) -> dict:
+    """A copy of Corvane for one visitor, so what they change is theirs alone. The browser's key makes asking twice
+    return the same copy. Rate-limited per client."""
     limit(request, bucket="demo")
     db = get_db()
     try:
-        made = demo.create(db)
+        made = demo.create(db, body.key if body else None)
     except demo.Full as e:  # the visitor works in the shared company instead
         raise HTTPException(503, f"no room for another copy right now ({e})") from None
     return _copy_of_corvane(db, made["tenant"]) | {"ms": made["ms"]}

@@ -305,7 +305,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setTenant(mine);
         return;
       }
-      const made = await post<Tenant>("/api/demo", {});
+      // a key kept before asking: a page reloaded while the copy is being made asks again with it and gets the same one
+      let key = "";
+      try {
+        key = localStorage.getItem(DEMO_KEY + ".key") || "";
+        if (!key) {
+          key = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+          localStorage.setItem(DEMO_KEY + ".key", key);
+        }
+      } catch {
+        /* no storage: no key */
+      }
+      const made = await post<Tenant>("/api/demo", key ? { key } : {});
       try {
         localStorage.setItem(DEMO_KEY, made.id);
         localStorage.removeItem("orion.start"); // a fresh copy: the walkthrough starts again too
@@ -321,6 +332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const done = () => {
       try {
         localStorage.removeItem(DEMO_KEY);
+        localStorage.removeItem(DEMO_KEY + ".key");
         localStorage.removeItem("orion.start");
       } catch {
         /* ignore */

@@ -26,7 +26,10 @@ TRIM_S = 10 * 60         # idle this long: its past-date epochs (Hindsight, Hist
 EVICT_S = 60             # to make room, copies idle this long go first
 ACTIVE_S = 15 * 60
 MAX = 24
-RESERVE = 24 * 2 ** 20   # a new copy is about 17 MB (records, today's epoch, the what-if), plus room to work in
+COPY = 18 * 2 ** 20      # a new copy: records, today's epoch, the what-if
+HEADROOM = 30 * 2 ** 20  # kept free for the work done in copies: safe-path scratch copies, Hindsight's two epochs
+RESERVE = COPY + HEADROOM
+KEYS = "orion:demokey:"  # the browser's key -> its copy, so a page reloaded mid-creation gets the same copy
 SEEN = "orion:demo:"
 
 
@@ -169,12 +172,18 @@ def make_room(db: dbm.DB) -> None:
         used, cap = memory(db)
 
 
-def create(db: dbm.DB) -> dict:
-    """A fresh copy of the template for one visitor. Raises Full when there is no room for one."""
+def create(db: dbm.DB, key: str | None = None) -> dict:
+    """A fresh copy of the template for one visitor. With the browser's `key`, asking again (a page reloaded before
+    the answer came back) returns the same copy instead of making another. Raises Full when there is no room."""
     with db.lock("demo:create", ttl=120):
+        if key and (t := db.get(KEYS + key)) and db.exists(dbm.org(t)):
+            touch(db, t)
+            return {"tenant": t, "graphs": [], "ms": 0, "again": True}
         gc(db, keep=MAX - 1)
         make_room(db)
         t = PREFIX + secrets.token_hex(4)
         out = clone(db, TEMPLATE, t)
         touch(db, t)
+        if key:
+            db.set(KEYS + key, t, ex=TTL_S * 2)
     return {"tenant": t, **out}

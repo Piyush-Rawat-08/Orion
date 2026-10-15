@@ -94,3 +94,16 @@ def test_the_template_can_not_be_changed_over_the_api():
                     headers={"origin": "http://localhost:3001"})
     assert r.status_code == 403 and "read-only" in r.json()["detail"]
     assert r.headers.get("access-control-allow-origin") == "http://localhost:3001"  # the browser can read why
+
+
+def test_asking_again_with_the_same_key_returns_the_same_copy(db, tenant, monkeypatch):
+    monkeypatch.setattr(demo, "TEMPLATE", tenant)
+    a = demo.create(db, key="browser-1")["tenant"]
+    try:
+        again = demo.create(db, key="browser-1")
+        assert again["tenant"] == a and again["again"]
+        assert demo.create(db, key="browser-2")["tenant"] != a
+    finally:
+        for t in list(demo.seen(db)):
+            if demo.graphs_of(db, t):
+                demo.remove(db, t)

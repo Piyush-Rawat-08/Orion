@@ -113,6 +113,7 @@ export async function authFetch(path: string, init: RequestInit = {}, as?: strin
 function freshCopy() {
   try {
     localStorage.removeItem("orion.demo");
+    localStorage.removeItem("orion.demo.key");
   } catch {
     /* ignore */
   }
