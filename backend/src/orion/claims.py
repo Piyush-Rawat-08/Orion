@@ -166,18 +166,28 @@ def _said(word: str) -> str:
     return "break"
 
 
+# what may stand between a system and its verb: "invoice-render would stop", "billing-api will also slow down"
+FILLER = re.compile(r"^[\s,]*(?:(?:would|will|could|can|may|might|also|then|both|all|be|is|are|gets?|got)\s+)*$", re.I)
+
+
 def effect_mismatch(text: str, effects: dict[str, str]) -> list[str]:
-    """For each system, the effect word nearest its name in the sentence, against the effect the graph computed.
-    A sentence with no effect word at all says nothing about severity, so it can't get it wrong."""
-    words = [(m.start(), m.end(), _said(m.group(1))) for m in EFFECT_WORDS.finditer(text)]
-    if not words:
-        return []
+    """For each system, the effect the sentence gives it, against the effect the graph computed. Which word is
+    "its": a verb right after the name ("billing-api slows down"); otherwise the last one before it in the same
+    sentence ("stops invoice-render and reports-legacy"); otherwise the first one after ("billing-api, onboarding and
+    web-console slow down"). A sentence with no effect word says nothing about severity, so it can't get it wrong."""
     out = []
     for name, effect in effects.items():
-        for m in re.finditer(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.I):
-            near = min(words, key=lambda w: min(abs(w[0] - m.end()), abs(m.start() - w[1])))
-            if near[2] != effect:
-                out.append(f"{name} {EFFECT_SAID[effect]}, it doesn't {EFFECT_DO[near[2]]}")
+        for sentence in re.split(r"(?<=[.!?;])\s+", text):
+            m = re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", sentence, re.I)
+            if not m:
+                continue
+            words = [(w.start(), w.end(), _said(w.group(1))) for w in EFFECT_WORDS.finditer(sentence)]
+            after = [w for w in words if w[0] >= m.end()]
+            before = [w for w in words if w[1] <= m.start()]
+            said = (after[0] if after and FILLER.match(sentence[m.end():after[0][0]]) else
+                    before[-1] if before else after[0] if after else None)
+            if said and said[2] != effect:
+                out.append(f"{name} {EFFECT_SAID[effect]}, it doesn't {EFFECT_DO[said[2]]}")
             break
     return out
 

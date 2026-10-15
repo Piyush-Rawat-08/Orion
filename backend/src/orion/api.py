@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
                     ts = working_tenants(db)
                 except Exception:
                     continue
-                if time.time() - cleaned > 600:  # visitors' copies idle for hours, or past the cap
+                if time.time() - cleaned > 120:  # visitors' copies idle too long, or past the cap
                     cleaned = time.time()
                     try:
                         demo.gc(db)
@@ -210,7 +210,10 @@ def new_demo(request: Request) -> dict:
     """A copy of Corvane for one visitor, so what they change is theirs alone. Rate-limited per client."""
     limit(request, bucket="demo")
     db = get_db()
-    made = demo.create(db)
+    try:
+        made = demo.create(db)
+    except demo.Full as e:  # the visitor works in the shared company instead
+        raise HTTPException(503, f"no room for another copy right now ({e})") from None
     return _copy_of_corvane(db, made["tenant"]) | {"ms": made["ms"]}
 
 

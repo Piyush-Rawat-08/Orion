@@ -13,6 +13,11 @@ def test_the_effect_word_nearest_each_system_must_match():
     assert claims.effect_mismatch("billing-api and onboarding would slow down or partly fail.", EFFECTS) == []
     wrong = claims.effect_mismatch("Five systems stop working: invoice-render, billing-api and web-console.", EFFECTS)
     assert wrong == ["billing-api slows down, it doesn't stop working", "web-console slows down, it doesn't stop working"]
+    # the verb before a list governs it; "slow down" later in the sentence belongs to what follows it
+    showcase = ("Switching off sso-legacy would stop invoice-render and reports-legacy outright and slow down billing-api, "
+                "onboarding and web-console, touching 16 customers.")
+    assert claims.effect_mismatch(showcase, EFFECTS) == []
+    assert claims.effect_mismatch("invoice-render stops and billing-api slows.", EFFECTS) == []
     # no effect word: nothing said about severity, nothing to get wrong
     assert claims.effect_mismatch("invoice-render and billing-api are affected.", EFFECTS) == []
 

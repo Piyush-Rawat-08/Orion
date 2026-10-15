@@ -21,10 +21,17 @@ from orion import db as dbm
 
 TEMPLATE = "corvane"
 PREFIX = "demo-"
-TTL_S = 6 * 3600
+TTL_S = 30 * 60          # a copy idle this long is deleted; coming back after that starts on a fresh one
+TRIM_S = 10 * 60         # idle this long: its past-date epochs (Hindsight, History) are dropped, rebuilt if needed
+EVICT_S = 3 * 60         # to make room, a copy idle this long may go
 ACTIVE_S = 15 * 60
 MAX = 24
+RESERVE = 40 * 2 ** 20   # what one copy can grow to in use: records, epoch, what-if, two past epochs, a scratch copy
 SEEN = "orion:demo:"
+
+
+class Full(Exception):
+    """No room for another copy right now."""
 
 
 def is_demo(t: str) -> bool:
@@ -109,23 +116,61 @@ def remove(db: dbm.DB, t: str) -> None:
         db.drop(p)
 
 
+def trim(db: dbm.DB, t: str) -> int:
+    """Drop the epochs of past dates (and their records); today's stays. They are rebuilt when next asked for."""
+    old = [g for g in db.graphs(f"epoch:{t}:") if g != f"epoch:{t}:now"]
+    for g in old:
+        db.delete(g)
+        db.drop(f"orion:epoch:{g}")
+        db.drop(f"orion:snap:{g}")
+    return len(old)
+
+
 def gc(db: dbm.DB, keep: int = MAX) -> list[str]:
-    """Copies idle for TTL_S go; past `keep`, the least recently seen go too."""
+    """Copies idle for TTL_S go, and past `keep` the least recently seen; copies idle for TRIM_S lose their past
+    epochs."""
     by = sorted(seen(db).items(), key=lambda x: -x[1])
-    cut = time.time() - TTL_S
-    gone = [t for i, (t, at) in enumerate(by) if at < cut or i >= keep]
+    now = time.time()
+    gone = [t for i, (t, at) in enumerate(by) if at < now - TTL_S or i >= keep]
     for t in gone:
         try:
             remove(db, t)
         except Exception as e:
             print(f"demo gc {t}: {type(e).__name__}: {e}", flush=True)
+    for t, at in by:
+        if t not in gone and at < now - TRIM_S:
+            try:
+                trim(db, t)
+            except Exception as e:
+                print(f"demo trim {t}: {type(e).__name__}: {e}", flush=True)
     return gone
 
 
+def memory(db: dbm.DB) -> tuple[int, int | None]:
+    """(used, limit) in bytes; no limit on a local server."""
+    info = db.redis.info("memory")
+    return int(info["used_memory"]), int(info.get("maxmemory") or 0) or None
+
+
+def make_room(db: dbm.DB) -> None:
+    """Evict the least recently seen idle copies until another one fits under the server's memory limit."""
+    used, cap = memory(db)
+    if not cap:
+        return
+    idle = [t for t, at in sorted(seen(db).items(), key=lambda x: x[1]) if at < time.time() - EVICT_S]
+    while used + RESERVE > cap * 0.95:
+        if not idle:
+            raise Full(f"{used // 2 ** 20} MB of {cap // 2 ** 20} MB in use and every copy is in use")
+        remove(db, idle.pop(0))
+        time.sleep(0.5)  # deletes are asynchronous on the server
+        used, cap = memory(db)
+
+
 def create(db: dbm.DB) -> dict:
-    """A fresh copy of the template for one visitor."""
+    """A fresh copy of the template for one visitor. Raises Full when there is no room for one."""
     with db.lock("demo:create", ttl=120):
         gc(db, keep=MAX - 1)
+        make_room(db)
         t = PREFIX + secrets.token_hex(4)
         out = clone(db, TEMPLATE, t)
         touch(db, t)

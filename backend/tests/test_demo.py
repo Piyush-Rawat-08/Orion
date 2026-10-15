@@ -1,5 +1,7 @@
 """Every visitor gets a copy of their own: the story plays out in the copy and the template never moves."""
 
+import time
+
 from orion import db as dbm
 from orion import demo, showcase
 from orion import universe as uv
@@ -55,4 +57,27 @@ def test_idle_copies_and_copies_past_the_cap_are_cleaned_up(db, tenant, monkeypa
     finally:
         for t in made:
             if demo.graphs_of(db, t) or t in demo.seen(db):
+                demo.remove(db, t)
+
+
+def test_a_full_server_evicts_idle_copies_first_and_refuses_when_every_copy_is_in_use(db, tenant, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(demo, "TEMPLATE", tenant)
+    old = demo.create(db)["tenant"]
+    try:
+        db.set(demo.SEEN + old, str(time.time() - 5 * 60))  # idle long enough to be evicted, not yet to expire
+        cap = 100 * 2 ** 20
+        usage = iter([95 * 2 ** 20, 30 * 2 ** 20])  # full, then room once the idle copy is gone
+        monkeypatch.setattr(demo, "memory", lambda db_: (next(usage), cap))
+        new = demo.create(db)["tenant"]
+        assert not demo.graphs_of(db, old) and demo.graphs_of(db, new)
+        # every copy in use and still no room: refuse rather than take someone's copy away
+        monkeypatch.setattr(demo, "memory", lambda db_: (95 * 2 ** 20, cap))
+        with pytest.raises(demo.Full):
+            demo.create(db)
+        assert demo.graphs_of(db, new)
+    finally:
+        for t in list(demo.seen(db)):
+            if t in (old,) or demo.graphs_of(db, t):
                 demo.remove(db, t)
