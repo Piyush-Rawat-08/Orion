@@ -210,7 +210,8 @@ export default function BlastRadius({
   const amber = C.undeclared;
   const nodeColor = (n: BNode) =>
     n.kind === "team" ? C.text : n.kind === "customer" ? C.partial : n.effect && n.effect !== "break" ? C.partial : red;
-  const customers = L.nodes.filter((n) => n.kind === "customer").length;
+  // every customer who would notice, including any the column had no room to draw
+  const customers = diff.customers?.length ?? 0;
   const header = ["Switched off", "Directly", "2 steps away", "3 steps away", "4+ steps away"];
 
   return (
@@ -226,7 +227,7 @@ export default function BlastRadius({
       {size === "full" &&
         Array.from({ length: L.last + 1 }, (_, c) => (
           <text key={c} x={g.pad + c * g.colW - g.r} y={14} fontSize={11} fill="var(--color-muted)" fontFamily="var(--font-sans)">
-            {c === L.last ? `Teams responsible${customers ? ` · ${customers} customer${customers === 1 ? "" : "s"}` : ""}` : header[c]}
+            {c === L.last ? (customers ? `Teams and ${customers} customer${customers === 1 ? "" : "s"}` : "Teams responsible") : header[c]}
           </text>
         ))}
       {L.edges.map((e) => {

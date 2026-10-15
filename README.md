@@ -94,7 +94,7 @@ Every screen is a query, a traversal or an algorithm over FalkorDB.
 
 | What | FalkorDB feature |
 |---|---|
-| A universe per question | `GRAPH.COPY` of today's company, then the change edits the copy in place (about 50 ms for Corvane's 1,700 nodes and 4,800 relationships) |
+| A universe per question | `GRAPH.COPY` of today's company, then the change edits the copy in place (a median of about 60 ms for Corvane's 1,700 nodes and 5,000 relationships) |
 | The company on any date | `GRAPH.COPY` of the bi-temporal org graph, pruned to the date; derived relationships recomputed for it |
 | Many graphs in one instance | `org:`, `epoch:`, `universe:`, `mem:` (one per person), `deck:` |
 | What breaks, at any depth | Breadth-first walk up `DEPENDS_ON`, one indexed query per hop, keeping the worst effect and a witness path |

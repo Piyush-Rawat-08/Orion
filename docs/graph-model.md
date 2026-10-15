@@ -37,7 +37,7 @@ physically edited:
 - derived relationships are computed for that date (below).
 
 A universe is a copy of `epoch:now` edited the same way by the physical interpreter of each op. Copying Corvane
-(about 1,700 nodes and 4,800 relationships) takes about 40 milliseconds, so every question can have its own universe.
+(about 1,700 nodes and 5,000 relationships) takes a median of about 60 milliseconds, so every question can have its own universe.
 
 ## The company (`org:<tenant>`)
 
