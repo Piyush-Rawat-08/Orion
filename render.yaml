@@ -1,0 +1,39 @@
+# Render blueprint for the Orion API (Dashboard → New → Blueprint → this repo).
+# The graph lives on FalkorDB Cloud; the web app is on Vercel.
+services:
+  - type: web
+    name: orion-api
+    runtime: docker
+    plan: free
+    region: singapore          # closest Render region to the FalkorDB Cloud instance (ap-south-1)
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: FALKORDB_HOST
+        sync: false
+      - key: FALKORDB_PORT
+        sync: false
+      - key: FALKORDB_USERNAME
+        sync: false
+      - key: FALKORDB_PASSWORD
+        sync: false
+      - key: FALKORDB_SSL
+        value: "false"
+      - key: ORION_LLM
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ORION_SECRET
+        generateValue: true
+      - key: ORION_ADMIN_TOKEN
+        generateValue: true
+      - key: ORION_CORS
+        value: https://orion-gamma-six.vercel.app
+      - key: ORION_LLM_PER_HOUR
+        value: "60"
