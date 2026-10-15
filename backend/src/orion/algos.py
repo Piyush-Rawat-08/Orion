@@ -33,7 +33,7 @@ PAGERANK_SERVICES = """
 CALL algo.pageRank('Service', 'DEPENDS_ON')
 YIELD node, score
 RETURN node.uid AS uid, node.name AS name, score
-ORDER BY score DESC
+ORDER BY score DESC, uid
 """
 
 COMMUNITIES = """

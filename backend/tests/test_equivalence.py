@@ -36,7 +36,7 @@ def state(db, g: str) -> dict:
         "groups": algos.collab_groups(db, g),
         "bottlenecks": [p["uid"] for p in algos.bottlenecks(db, g)],
         "hidden": [[p["uid"] for p in h["people"]] for h in algos.hidden_teams(db, g)],
-        "pagerank": [(r["uid"], round(r["score"], 3)) for r in algos.influence(db, g)],
+        "pagerank": {r["uid"]: round(r["score"], 3) for r in algos.influence(db, g)},
         "impact": {k: (v["effect"], v["depth"]) for k, v in impact.walk(db, g, retired).items()},
     }
 
