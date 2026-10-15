@@ -22,6 +22,13 @@ const TERM_LABEL: Record<RiskTerm["kind"], string> = {
 
 const EFFECT_TEXT = { break: "stops working", degrade: "slows down", stale: "gets out-of-date data" } as const;
 
+/** A system's term says how it is hit: "stops" only for one that stops. */
+function termLabel(t: RiskTerm, diff: Diff) {
+  if (t.kind !== "break") return TERM_LABEL[t.kind];
+  const effect = diff.broken.find((b) => b.service === t.subject)?.effect ?? "break";
+  return effect === "break" ? "stops" : effect === "degrade" ? "slows" : "goes stale";
+}
+
 const short = (uid: string) => uid.replace(/^(svc|person|team|customer):/, "");
 
 function Section({ title, count, children, tone }: { title: string; count?: number; children: React.ReactNode; tone?: string }) {
@@ -86,7 +93,7 @@ export function RiskBlock({ diff }: { diff: Diff }) {
                 transition={{ duration: 0.2, delay: Math.min(i, 6) * 0.03 }}
                 title={t.why}
               >
-                <span className="text-[11px] text-muted">{TERM_LABEL[t.kind]}</span>
+                <span className="text-[11px] text-muted">{termLabel(t, diff)}</span>
                 <span className="min-w-0">
                   <span className="text-ink">{t.subject}</span>
                   <span className="block truncate text-[11px] text-muted">{plainWhy(t.why)}</span>
