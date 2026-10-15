@@ -129,10 +129,22 @@ function Hops({ n }: { n: number }) {
   );
 }
 
+/** "2 stop working · 3 slow down": the split, not one count under the harshest heading. */
+function affectedTitle(broken: { effect?: string }[]) {
+  if (!broken.length) return "What would stop working";
+  const n = (e: string) => broken.filter((b) => (b.effect ?? "break") === e).length;
+  const parts = [
+    n("break") && `${n("break")} would stop working`,
+    n("degrade") && `${n("degrade")} would slow down`,
+    n("stale") && `${n("stale")} would go stale`,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 export function BrokenBlock({ diff }: { diff: Diff }) {
   const { openBlame } = useApp();
   return (
-    <Section title="What would stop working" count={diff.broken.length} tone={C.bad}>
+    <Section title={affectedTitle(diff.broken)} tone={C.bad}>
       {diff.broken.length === 0 ? (
         <p className="text-xs text-muted">Nothing relies on what this change switches off.</p>
       ) : (
@@ -161,7 +173,7 @@ export function BrokenBlock({ diff }: { diff: Diff }) {
                 </p>
               )}
               <p className="mt-1 pl-[2px] text-muted">
-                Team responsible: {b.owners.join(", ") || "none"} · Who knows it: {b.people_who_know_it.slice(0, 4).join(", ") || "nobody"}
+                Team responsible: {b.owners.join(", ") || "none"} · Recent work on it: {b.people_who_know_it.slice(0, 4).join(", ") || "nobody"}
               </p>
               {b.via_undeclared.length > 0 && (
                 <p className="mt-0.5 text-warn">

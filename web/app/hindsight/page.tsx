@@ -222,7 +222,7 @@ function ReplayView({ inc }: { inc: Incident }) {
               )}
             </AnimatePresence>
           </div>
-          <SidePanel side={truth} title="What was actually true" note="The same change on the company as it really was that day." delay={0.25} danger />
+          <SidePanel side={truth} title="What was actually true" note="The same change on that day, with everything recorded since about what was true then." delay={0.25} danger />
         </div>
       )}
 

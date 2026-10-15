@@ -133,10 +133,16 @@ export default function UniverseStage({
                 {diff.structural.retired.length
                   ? `${diff.structural.retired.join(", ")} ${diff.structural.retired.length === 1 ? "is" : "are"} switched off`
                   : "The change is made"}
-                {`: ${diff.broken.length} ${diff.broken.length === 1 ? "system stops" : "systems stop"} working`}
-                {diff.customers?.length ? `, and ${diff.customers.length} ${diff.customers.length === 1 ? "customer" : "customers"} would notice` : ""}.
+                {(() => {
+                  const stop = diff.broken.filter((b) => (b.effect ?? "break") === "break").length;
+                  const slow = diff.broken.length - stop;
+                  return `: ${stop} ${stop === 1 ? "system stops" : "systems stop"} working${
+                    slow ? `, ${slow} ${slow === 1 ? "slows down or goes stale" : "slow down or go stale"}` : ""
+                  }`;
+                })()}
+                {diff.customers?.length ? `, and ${diff.customers.length} ${diff.customers.length === 1 ? "customer" : "customers"} could notice` : ""}.
               </span>{" "}
-              Read it left to right: the systems that rely on it directly fail first, then the ones that rely on those,
+              Read it left to right: the systems that rely on it directly are hit first, then the ones that rely on those,
               and on the right, the teams responsible and the customers who use them.
             </p>
             <BlastRadius diff={diff} size="full" />

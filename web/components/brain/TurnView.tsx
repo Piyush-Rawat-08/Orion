@@ -332,7 +332,13 @@ function ForkCard({ uid, dry }: { uid: string; dry: boolean }) {
   const href = dry ? `/review?u=${uid}` : `/multiverse?u=${uid}`;
   const facts = diff
     ? [
-        plural(diff.broken.length, "system stops working", "systems stop working"),
+        ...(() => {
+          const stop = diff.broken.filter((b) => (b.effect ?? "break") === "break").length;
+          const slow = diff.broken.length - stop;
+          return [plural(stop, "system stops working", "systems stop working")].concat(
+            slow ? [plural(slow, "slows down or goes stale", "slow down or go stale")] : [],
+          );
+        })(),
         plural(diff.customers?.length ?? 0, "customer would notice", "customers would notice"),
         plural(diff.required_approvers?.length ?? 0, "team has to agree", "teams have to agree"),
       ]

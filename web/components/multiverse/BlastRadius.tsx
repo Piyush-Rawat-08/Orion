@@ -222,7 +222,7 @@ export default function BlastRadius({
       viewBox={`0 0 ${L.W} ${L.H}`}
       className={`block max-w-none ${className}`}
       role="img"
-      aria-label={`How it spreads: ${diff.broken.length} systems stop working, by how far they are from what the change switches off; ${customers} customers and the teams responsible`}
+      aria-label={`How it spreads: ${diff.broken.length} systems affected, by how far they are from what the change switches off; ${customers} customers and the teams responsible`}
     >
       {size === "full" &&
         Array.from({ length: L.last + 1 }, (_, c) => (
