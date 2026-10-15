@@ -23,10 +23,10 @@ TEMPLATE = "corvane"
 PREFIX = "demo-"
 TTL_S = 30 * 60          # a copy idle this long is deleted; coming back after that starts on a fresh one
 TRIM_S = 10 * 60         # idle this long: its past-date epochs (Hindsight, History) are dropped, rebuilt if needed
-EVICT_S = 3 * 60         # to make room, a copy idle this long may go
+EVICT_S = 60             # to make room, copies idle this long go first
 ACTIVE_S = 15 * 60
 MAX = 24
-RESERVE = 40 * 2 ** 20   # what one copy can grow to in use: records, epoch, what-if, two past epochs, a scratch copy
+RESERVE = 24 * 2 ** 20   # a new copy is about 17 MB (records, today's epoch, the what-if), plus room to work in
 SEEN = "orion:demo:"
 
 
@@ -153,15 +153,18 @@ def memory(db: dbm.DB) -> tuple[int, int | None]:
 
 
 def make_room(db: dbm.DB) -> None:
-    """Evict the least recently seen idle copies until another one fits under the server's memory limit."""
+    """Evict copies until another one fits under the server's memory limit: idle ones first, then the least recently
+    seen even if it is in use (its visitor is moved to a fresh copy on their next request). A newcomer always gets a
+    copy; Full only when the template alone leaves no room."""
     used, cap = memory(db)
     if not cap:
         return
-    idle = [t for t, at in sorted(seen(db).items(), key=lambda x: x[1]) if at < time.time() - EVICT_S]
+    by = sorted(seen(db).items(), key=lambda x: x[1])
+    order = [t for t, at in by if at < time.time() - EVICT_S] + [t for t, at in by if at >= time.time() - EVICT_S]
     while used + RESERVE > cap * 0.95:
-        if not idle:
-            raise Full(f"{used // 2 ** 20} MB of {cap // 2 ** 20} MB in use and every copy is in use")
-        remove(db, idle.pop(0))
+        if not order:
+            raise Full(f"{used // 2 ** 20} MB of {cap // 2 ** 20} MB in use")
+        remove(db, order.pop(0))
         time.sleep(0.5)  # deletes are asynchronous on the server
         used, cap = memory(db)
 

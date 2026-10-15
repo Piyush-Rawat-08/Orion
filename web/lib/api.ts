@@ -100,8 +100,23 @@ export async function authFetch(path: string, init: RequestInit = {}, as?: strin
     if (tenant) headers.set("authorization", `Bearer ${await token(tenant, fresh, as)}`);
     return fetch(url, { cache: "no-store", ...init, headers });
   };
-  const res = await go(false);
+  // this browser's copy was cleared away to make room for someone else: start again on a fresh one
+  const gone = tenant?.startsWith("demo-") && tenant === current;
+  const res = await go(false).catch((e) => {
+    if (gone && e instanceof ApiError && e.status === 404) freshCopy();
+    throw e;
+  });
+  if (gone && res.status === 404 && (await res.clone().text()).includes("unknown tenant")) freshCopy();
   return res.status === 401 && tenant ? go(true) : res;
+}
+
+function freshCopy() {
+  try {
+    localStorage.removeItem("orion.demo");
+  } catch {
+    /* ignore */
+  }
+  window.location.reload();
 }
 
 async function handle<T>(res: Response): Promise<T> {

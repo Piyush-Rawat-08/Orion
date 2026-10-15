@@ -123,9 +123,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Orion", version="0.2.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware,
-                   allow_origins=[o.strip() for o in (env("ORION_CORS") or "http://localhost:3001").split(",")],
-                   allow_methods=["GET", "POST"], allow_headers=["authorization", "content-type", "accept", "x-admin-token"])
 
 
 class ScreenReads:
@@ -146,6 +143,34 @@ class ScreenReads:
 
 
 app.add_middleware(ScreenReads)
+
+
+class TemplateReadOnly:
+    """Visitors work in copies of the demo company; the company they are copied from never changes over the API, or
+    every later copy would start with someone else's story already told. (ORION_TEMPLATE_WRITABLE=1 to allow.)"""
+
+    OPEN = ("/login", "/reset")
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if (scope["type"] == "http" and scope.get("method") == "POST" and path.startswith(f"/api/{demo.TEMPLATE}/")
+                and not path.endswith(self.OPEN) and not env("ORION_TEMPLATE_WRITABLE")):
+            from starlette.responses import JSONResponse
+
+            res = JSONResponse({"detail": "The shared demo company is read-only. Reload the page to get a copy of your own."},
+                               status_code=403)
+            return await res(scope, receive, send)
+        return await self.inner(scope, receive, send)
+
+
+app.add_middleware(TemplateReadOnly)
+# outermost, so every response carries CORS headers, refusals included
+app.add_middleware(CORSMiddleware,
+                   allow_origins=[o.strip() for o in (env("ORION_CORS") or "http://localhost:3001").split(",")],
+                   allow_methods=["GET", "POST"], allow_headers=["authorization", "content-type", "accept", "x-admin-token"])
 
 
 def needs_llm(request: Request, calls: int = 1) -> None:

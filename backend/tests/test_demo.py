@@ -60,7 +60,7 @@ def test_idle_copies_and_copies_past_the_cap_are_cleaned_up(db, tenant, monkeypa
                 demo.remove(db, t)
 
 
-def test_a_full_server_evicts_idle_copies_first_and_refuses_when_every_copy_is_in_use(db, tenant, monkeypatch):
+def test_a_full_server_evicts_idle_copies_first_then_the_least_recently_seen(db, tenant, monkeypatch):
     import pytest
 
     monkeypatch.setattr(demo, "TEMPLATE", tenant)
@@ -72,12 +72,25 @@ def test_a_full_server_evicts_idle_copies_first_and_refuses_when_every_copy_is_i
         monkeypatch.setattr(demo, "memory", lambda db_: (next(usage), cap))
         new = demo.create(db)["tenant"]
         assert not demo.graphs_of(db, old) and demo.graphs_of(db, new)
-        # every copy in use and still no room: refuse rather than take someone's copy away
+        # no idle copy left: the least recently seen goes even though it is in use, and only when nothing is left to
+        # clear (the template alone fills the server) is a newcomer refused
         monkeypatch.setattr(demo, "memory", lambda db_: (95 * 2 ** 20, cap))
         with pytest.raises(demo.Full):
             demo.create(db)
-        assert demo.graphs_of(db, new)
+        assert not demo.graphs_of(db, new)
     finally:
         for t in list(demo.seen(db)):
             if t in (old,) or demo.graphs_of(db, t):
                 demo.remove(db, t)
+
+
+def test_the_template_can_not_be_changed_over_the_api():
+    from fastapi.testclient import TestClient
+
+    from orion import api
+
+    client = TestClient(api.app)  # no lifespan: no workers, nothing loaded
+    r = client.post(f"/api/{demo.TEMPLATE}/messages", json={"channel": "#billing", "text": "x"},
+                    headers={"origin": "http://localhost:3001"})
+    assert r.status_code == 403 and "read-only" in r.json()["detail"]
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3001"  # the browser can read why
