@@ -128,3 +128,21 @@ def test_a_task_is_claimed_once_even_by_racing_workers(db, tenant):
         got = list(pool.map(lambda i: blackboard.claim(db, tenant, f"simulator-{i % 3}", ["fork"]), range(30)))
     claimed = [g["uid"] for g in got if g]
     assert sorted(claimed) == sorted(uids) and len(set(claimed)) == len(claimed)
+
+
+def test_a_worker_does_the_fork_and_the_poster_reads_the_result_off_the_board(db, tenant):
+    import threading
+
+    stop = threading.Event()
+    worker = threading.Thread(target=blackboard.agent_loop,
+                              args=("simulator-test", "simulator", ["fork"], stop, lambda: [tenant]), daemon=True)
+    worker.start()
+    try:
+        res = blackboard.run(db, tenant, "fork", {"ops": [{"op": "deprecate_service", "service": "sso-legacy"}],
+                                                  "created_by": PRIYA}, posted_by=PRIYA)
+    finally:
+        stop.set()
+        worker.join(5)
+    assert res["_worker"] == "simulator-test" and res["diff"]["risk"]["level"] == "high"
+    done = db.ro(dbm.deck(tenant), "MATCH (x:Task {uid: $u}) RETURN x.status AS s", {"u": res["_task"]})
+    assert done == [{"s": "done"}]

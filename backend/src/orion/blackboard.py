@@ -140,7 +140,9 @@ def run_task(db: dbm.DB, t: str, task: dict, agent: str) -> dict:
         except Exception as e:
             fail(db, t, task["uid"], f"{type(e).__name__}: {e}")
             raise
-    complete(db, t, task["uid"], {k: res.get(k) for k in ("uid", "title", "risk", "risk_level")}, summary)
+    complete(db, t, task["uid"], {k: res.get(k) for k in ("uid", "title", "risk", "risk_level", "assumptions", "scenario",
+                                                       "fork_ms", "copy_ms")},
+             summary)
     return res | {"_worker": agent, "_task": task["uid"]}
 
 
@@ -152,13 +154,22 @@ def live_workers(db: dbm.DB, t: str | None = None, role: str = "simulator") -> i
                       {"r": role, "since": now_ms() - DEAD_AFTER_S * 1000})["n"]
 
 
-_results: dict[str, dict] = {}
-_events: dict[str, threading.Event] = {}
+def _finished(db: dbm.DB, t: str, uid: str, payload: dict) -> dict:
+    """A finished fork or simulate task, read back from the board and the universe it made (any process may have
+    done it)."""
+    from orion import universe as uv
+
+    row = db.one(_deck(db, t), "MATCH (x:Task {uid: $u}) RETURN x.result AS r, x.claimed_by AS w", {"u": uid})
+    extra = json.loads(row["r"] or "{}") if row else {}
+    res = uv.fork(db, t, payload.get("ops") or [], uid=payload["universe_uid"])
+    return res | {k: extra[k] for k in ("assumptions", "scenario", "fork_ms") if extra.get(k) is not None} | {
+        "_worker": row["w"] if row else None, "_task": uid}
 
 
 def run(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", follows: str | None = None,
-        timeout: float = 60.0) -> dict:
-    """Post a task and wait for a worker to finish it. With no live worker, run it here (inline) instead."""
+        timeout: float = 90.0, pickup: float = 8.0) -> dict:
+    """Post a task and wait until a worker has done it. With no live worker, or none picking it up within `pickup`
+    seconds, it runs here instead. Waiting reads the board, so the worker can be in any process."""
     payload = dict(payload)
     if kind in ("fork", "simulate") and "universe_uid" not in payload:
         from orion.universe import next_uid
@@ -166,22 +177,23 @@ def run(db: dbm.DB, t: str, kind: str, payload: dict, posted_by: str = "api", fo
         payload["universe_uid"] = next_uid(db, t)  # a retried task rebuilds the same universe
     uid = post(db, t, kind, payload, posted_by, follows)
     if live_workers(db, t) == 0:
-        task = claim(db, t, "inline", [kind], uid=uid)
-        return run_task(db, t, task, "inline")
-    ev = threading.Event()
-    _events[uid] = ev
-    try:
-        if not ev.wait(timeout):
-            task = claim(db, t, "inline", [kind], uid=uid)  # nobody picked it up: do it here
+        return run_task(db, t, claim(db, t, "inline", [kind], uid=uid), "inline")
+    g = _deck(db, t)
+    start = time.time()
+    while time.time() - start < timeout:
+        with dbm.tagged("board"):
+            row = db.one(g, "MATCH (x:Task {uid: $u}) RETURN x.status AS s, x.error AS e", {"u": uid})
+        status = row["s"] if row else "dead"
+        if status == "done":
+            return _finished(db, t, uid, payload)
+        if status in ("failed", "dead"):
+            raise RuntimeError(row.get("e") if row else "the task disappeared")
+        if status == "open" and time.time() - start > pickup:
+            task = claim(db, t, "inline", [kind], uid=uid)  # nobody took it: do it here
             if task:
                 return run_task(db, t, task, "inline")
-            ev.wait(timeout)
-        res = _results.pop(uid, None)
-        if res is None or "error" in res:
-            raise RuntimeError((res or {}).get("error", "the worker didn't finish the task"))
-        return res
-    finally:
-        _events.pop(uid, None)
+        time.sleep(0.1)
+    raise RuntimeError(f"{kind} task {uid} didn't finish in {timeout:.0f} s")
 
 
 def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, tenants: Callable[[], list[str]],
@@ -204,13 +216,9 @@ def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, te
             did = True
             heartbeat(db, name, "working")
             try:
-                res = run_task(db, t, task, name)
-                _results[task["uid"]] = res
-            except Exception as e:
-                _results[task["uid"]] = {"error": f"{type(e).__name__}: {e}"}
-            ev = _events.get(task["uid"])
-            if ev:
-                ev.set()
+                run_task(db, t, task, name)  # done or failed is written on the board, where the poster reads it
+            except Exception:
+                pass
             heartbeat(db, name, "idle")
         if time.time() - last > HEARTBEAT_S:
             heartbeat(db, name, "idle")

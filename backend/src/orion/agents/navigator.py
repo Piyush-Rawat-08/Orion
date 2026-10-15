@@ -240,7 +240,8 @@ def answer(db: dbm.DB, t: str, question: str, user: str | None = None, session: 
             break
         work = [c for c in turn.calls if c.name != "submit_answer"]
         for c in work:
-            emit({"type": "tool_call", "agent": "navigator", "tool": c.name, "args": c.args})
+            if c.name in TOOLS:  # a model sometimes calls a tool it wasn't given: it gets an error, not a step on screen
+                emit({"type": "tool_call", "agent": "navigator", "tool": c.name, "args": c.args})
         with ThreadPoolExecutor(PARALLEL) as ex:
             outs = dict(zip([c.id for c in work], ex.map(lambda c: call_tool(ctx, c.name, dict(c.args))
                                                          if c.name in TOOLS else {"error": f"no tool {c.name}"}, work)))
