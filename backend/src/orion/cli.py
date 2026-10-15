@@ -41,8 +41,43 @@ def epoch(on: str, mode: str = "true", tenant: str = "corvane"):
 def cypher(query: str, graph: str = "epoch:corvane:now"):
     """Run a read-only query."""
     db = dbm.get_db()
+    if graph.endswith(":now"):
+        graph = ep.ensure(db, graph.split(":")[1])
     out.print_json(json.dumps(db.ro(graph, query), default=str))
 
 
 if __name__ == "__main__":
     app()
+
+
+@app.command()
+def fork(changes: list[str], by: str = "person:priya-raman", on: str = "", mode: str = "true",
+         tenant: str = "corvane"):
+    """Fork the company and apply changes, e.g. retire_service:service=sso-legacy"""
+    from orion import ops as opsm
+    from orion import universe as uv
+
+    db = dbm.get_db()
+    rec = uv.fork(db, tenant, [opsm.parse(c) for c in changes], by=by, on=on or None, mode=mode)
+    d = rec["diff"]
+    out.print(f"[bold]{rec['uid']}[/] {rec['title']}  ({rec['ms']['total']} ms, diff {d['ms']} ms)")
+    out.print(d["summary"])
+    for b in d["breaks"]:
+        out.print(f"  {b['effect']:8} {b['name']:16} tier {b['tier']}  via {' -> '.join(b['path_names'])}")
+    for c in d["customers"]:
+        out.print(f"  customer {c['name']} ({c['tier']}, {c['effect']}) via {', '.join(c['via'])} {' '.join(c['tickets'])}")
+    for o in d["orphans"]:
+        out.print(f"  orphan   {o['name']} (knew: {', '.join(o['knew'])})")
+    out.print("  approvals: " + ", ".join(f"{a['team_name']} ({'; '.join(a['why'])})" for a in d["approvals"]))
+    for term in d["risk"]["terms"]:
+        out.print(f"    +{term['points']:5}  {term['label']}")
+
+
+@app.command()
+def approve(universe: str, by: str, force: bool = False, tenant: str = "corvane"):
+    """Approve a universe as a person (their team's approval); merges when every team has approved."""
+    from orion import universe as uv
+
+    db = dbm.get_db()
+    res = uv.approve(db, tenant, universe, by, force=force)
+    out.print(res.get("result"), res.get("message", ""), [a["team_name"] for a in res.get("waiting_for", [])])

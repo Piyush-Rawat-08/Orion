@@ -9,7 +9,7 @@ GRAPH.COPY of the org graph, physically pruned to one date:
   - sources, decisions, tickets and people from after the date are deleted, statuses are rewound;
   - people who had left are relabelled :Former and retired services :Retired, so algorithms skip them;
   - derived edges are recomputed as of the date: KNOWS (3+ changes or reviews of a service in 180 days)
-    and COLLABORATES (shared changes, each worth 2 points, decaying with a 90-day half-life; kept from 3).
+    and COLLABORATES (shared changes, each worth 2 points, decaying with a 90-day half-life; kept from 3; both directions).
 
 Every universe starts as a copy of epoch:<tenant>:now.
 """
@@ -52,6 +52,7 @@ PRUNE = [
     # who had gone, what had been switched off
     "MATCH (p:Person) WHERE p.left <= $d SET p:Former REMOVE p:Person",
     "MATCH (s:Service) WHERE s.retired <= $d SET s:Retired REMOVE s:Service",
+    "MATCH (t:Team) WHERE t.dissolved <= $d SET t:FormerTeam REMOVE t:Team",
 ]
 
 DERIVE_KNOWS = """
@@ -67,8 +68,25 @@ MATCH (a:Person)-[:AUTHORED|REVIEWED]->(c:Change)<-[:AUTHORED|REVIEWED]-(b:Perso
 WHERE a.uid < b.uid AND c.day > $day - 365
 WITH a, b, sum(2.0 * exp(-$k * ($day - c.day))) AS w, count(c) AS shared
 WHERE w >= $min
-CREATE (a)-[:COLLABORATES {w: w, shared: shared}]->(b)
+CREATE (a)-[:COLLABORATES {w: w, inv: 1.0 / w, cost: 1.0 + 3.0 / w, shared: shared}]->(b),
+       (b)-[:COLLABORATES {w: w, inv: 1.0 / w, cost: 1.0 + 3.0 / w, shared: shared}]->(a)
 """
+
+# collaboration that crosses team lines; WCC over it finds the groups the org chart doesn't show
+DERIVE_BRIDGES = """
+MATCH (a:Person)-[r:COLLABORATES]->(b:Person)
+MATCH (a)-[:MEMBER_OF]->(ta:Team)
+MATCH (b)-[:MEMBER_OF]->(tb:Team)
+WHERE ta.uid <> tb.uid
+CREATE (a)-[:BRIDGES {w: r.w}]->(b)
+"""
+
+# what it costs to walk each kind of link when asking how two things are connected: structure is cheap
+COSTS = [
+    "MATCH ()-[r:DEPENDS_ON|OWNS|MEMBER_OF]->() SET r.cost = 1.0",
+    "MATCH ()-[r:KNOWS]->() SET r.cost = 1.0 + 3.0 / r.n",
+    "MATCH ()-[r:WORKED_ON|TOUCHES|USES]->() SET r.cost = 2.0",
+]
 
 
 def name_for(tenant: str, on: str, mode: str) -> str:
@@ -90,6 +108,9 @@ def build(db: dbm.DB, tenant: str, on: str, mode: str = "true", name: str | None
     day = day_index(on)
     db.q(name, DERIVE_KNOWS, {"day": day, "window": KNOWS_WINDOW, "min": KNOWS_MIN})
     db.q(name, DERIVE_COLLAB, {"day": day, "k": LN2 / COLLAB_HALF_LIFE, "min": COLLAB_MIN})
+    db.q(name, DERIVE_BRIDGES)
+    for q in COSTS:
+        db.q(name, q)
     db.q(name, "MATCH (c:Company) SET c.on = $d, c.mode = $m, c.version = $v", {"d": on, "m": mode, "v": v})
     db.set(f"orion:epoch:{name}", f"{v}|{on}|{mode}")
     return {"graph": name, "on": on, "mode": mode, "ms": round((time.perf_counter() - t0) * 1000, 1)}
