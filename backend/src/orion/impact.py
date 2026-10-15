@@ -77,8 +77,13 @@ HOP_ON = _hop("up", True)
 def walk(db: dbm.DB, graph: str, roots: list[str], on: str | None = None, known: bool = False,
          max_depth: int = 40, direction: str = "up") -> dict[str, Reach]:
     """Everything that transitively depends on `roots` (direction 'up'), or everything `roots` depend on ('down').
-    {uid: Reach}."""
+    {uid: Reach}.
+
+    A service is walked again whenever a more severe path to it turns up, even one hop after it was first reached,
+    so what depends on it is upgraded too. Severity only ever goes up, so each service is expanded at most three
+    times and cycles end."""
     best: dict[str, Reach] = {}
+    start = set(roots)
     state = {r: (SEVERITY["break"], [r], [], [], [], r) for r in roots}
     frontier = list(dict.fromkeys(roots))
     q = _hop(direction, bool(on))
@@ -93,7 +98,9 @@ def walk(db: dbm.DB, graph: str, roots: list[str], on: str | None = None, known:
             sev_in, path, edges, kinds, decl, root = state[r["via"]]
             sev = min(sev_in, SEVERITY[EFFECT.get(r["kind"] or "sync", "break")])
             uid = r["next"]
-            if uid in state or uid in best and (SEVERITY[best[uid].effect] >= sev):
+            if uid in start or uid in path:
+                continue
+            if uid in best and SEVERITY[best[uid].effect] >= sev:
                 continue
             if uid in nxt and nxt[uid][0] >= sev:
                 continue
@@ -102,12 +109,10 @@ def walk(db: dbm.DB, graph: str, roots: list[str], on: str | None = None, known:
         state = {}
         for uid, (sev, path, edges, kinds, decl, root, r) in nxt.items():
             effect = next(k for k, v in SEVERITY.items() if v == sev)
-            best[uid] = Reach(uid=uid, name=r["name"], tier=r["tier"] or 3, hops=depth, root=root, effect=effect,
-                              nodes=path, edges=edges, kinds=kinds, declared=decl)
+            best[uid] = Reach(uid=uid, name=r["name"], tier=r["tier"] or 3, hops=len(path) - 1, root=root,
+                              effect=effect, nodes=path, edges=edges, kinds=kinds, declared=decl)
             state[uid] = (sev, path, edges, kinds, decl, root)
         frontier = list(state)
-    for r in roots:
-        best.pop(r, None)
     return best
 
 
