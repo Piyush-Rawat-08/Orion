@@ -556,6 +556,55 @@ def reject(tenant: str, uid: str, body: Decide, s: Session = Auth) -> dict:
         raise HTTPException(409, str(e))
 
 
+# ---------------------------------------------------------------- the safe path, hindsight
+
+class PlanBody(BaseModel):
+    ops: list[dict] = Field(min_length=1, max_length=4)
+    asof: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    mode: Literal["true", "known"] = "true"
+
+
+@app.post("/api/{tenant}/plan")
+async def plan(tenant: str, body: PlanBody, request: Request, s: Session = Auth):
+    """The safe path: search parallel companies for the preparation that makes a change break nothing.
+    SSE: status / universe (one per company explored) / best / done."""
+    known(tenant)
+    limit(request, bucket="fork")
+    from orion import planner
+
+    return stream(lambda emit: planner.plan(get_db(), tenant, body.ops, emit=emit, asof=body.asof, mode=body.mode))
+
+
+@app.get("/api/{tenant}/incidents")
+def incidents(tenant: str, s: Session = Auth) -> list[dict]:
+    known(tenant)
+    from orion import hindsight
+
+    return hindsight.incidents(get_db(), tenant)
+
+
+@app.post("/api/{tenant}/incidents/{key}/replay")
+async def replay_incident(tenant: str, key: str, request: Request, s: Session = Auth):
+    """Would Orion have caught it? The decision before the incident, replayed on what was known and what was true
+    that day, the facts nobody had written down, and the safe path Orion would have recommended.
+    SSE: status / known / true / blind_spot / universe / done."""
+    known(tenant)
+    limit(request, bucket="fork")
+    from orion import hindsight
+
+    return stream(lambda emit: hindsight.replay(get_db(), tenant, key, emit=emit))
+
+
+@app.get("/api/{tenant}/eval")
+def eval_results(tenant: str, s: Session = Auth) -> dict:
+    """The last head-to-head run (orion.evals): the same questions to Orion and to the model reading the records."""
+    from orion import evals
+
+    if not evals.OUT.exists():
+        raise HTTPException(404, "no evaluation has been run yet: uv run python -m orion.evals")
+    return json.loads(evals.OUT.read_text())
+
+
 # ---------------------------------------------------------------- live messages, inbox, reviews
 
 class MessageBody(BaseModel):

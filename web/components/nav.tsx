@@ -44,6 +44,21 @@ const I = {
     </>
   ),
   activity: <path d="M1.8 8.6h2.6l1.9-4.6 3.3 8.1 1.8-3.5h2.8" />,
+  // a clock whose hand runs backwards: looking back at what happened
+  hindsight: (
+    <>
+      <path d="M2.6 6.2A5.7 5.7 0 1 1 2.4 9.4" />
+      <path d="M2.2 3.4v2.9h2.9" />
+      <path d="M8 5.2v2.9l-1.9 1.2" />
+    </>
+  ),
+  // bars side by side with a check: the head-to-head
+  proof: (
+    <>
+      <path d="M3 13.2V8.4M6.6 13.2V5.2M10.2 13.2V9.6" />
+      <path d="M10.6 4.6l1.5 1.5 2.6-2.9" />
+    </>
+  ),
   inbox: (
     <>
       <path d="M2.4 9.4l1.8-5.6h7.6l1.8 5.6v2.8c0 .6-.4 1-1 1H3.4c-.6 0-1-.4-1-1z" />
@@ -62,6 +77,8 @@ export const NAV = [
   { href: "/review", label: "Approvals", key: "3", icon: I.review, group: "change", more: false, title: "Approvals", sub: "Changes waiting for sign-off. Nothing happens until the teams responsible approve." },
   { href: "/inbox", label: "Inbox", key: "4", icon: I.inbox, group: "change", more: false, title: "Inbox", sub: "Answers you were given that are no longer true, and what changed." },
   { href: "/time", label: "History", key: "5", icon: I.time, group: "see", more: false, title: "History", sub: "The company as it was on any day since January 2024." },
+  { href: "/hindsight", label: "Hindsight", key: "9", icon: I.hindsight, group: "see", more: false, title: "Hindsight", sub: "Would Orion have caught it? Each incident replayed against the decision that led to it." },
+  { href: "/proof", label: "Proof", key: "0", icon: I.proof, group: "see", more: false, title: "Proof", sub: "Orion against the same model reading the same records, on questions the records can settle." },
   { href: "/org", label: "Teams", key: "6", icon: I.org, group: "see", more: false, title: "Teams in practice", sub: "The org chart next to the groups people actually work in." },
   { href: "/repos", label: "Codebases", key: "7", icon: I.repos, group: "more", more: true, title: "Codebases", sub: "Load a GitHub project to see who knows each part of it and which parts are risky." },
   { href: "/activity", label: "Activity", key: "8", icon: I.activity, group: "more", more: true, title: "Activity", sub: "What the assistants are working on right now." },

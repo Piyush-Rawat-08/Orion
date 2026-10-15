@@ -13,6 +13,7 @@ import ForkForm from "@/components/multiverse/ForkForm";
 import SimulateBox from "@/components/multiverse/SimulateBox";
 import Compare from "@/components/multiverse/Compare";
 import UniverseList from "@/components/multiverse/UniverseList";
+import SafePath from "@/components/multiverse/SafePath";
 import Unwritten from "@/components/multiverse/Unwritten";
 import UniverseStage from "@/components/multiverse/UniverseStage";
 import { Handle, Pane, Split, useMedia } from "@/components/Split";
@@ -71,6 +72,7 @@ function Multiverse() {
   const main = useFetch<GraphPayload>("/graph");
   const detail = useFetch<UniverseDetail>(selected ? `/universes/${selected}` : null);
 
+  const [planning, setPlanning] = useState(false);
   const select = (uid: string) => router.replace(`/multiverse?u=${uid}`, { scroll: false });
   const sent = (uid: string) => {
     list.reload();
@@ -190,6 +192,17 @@ function Multiverse() {
         </p>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {d && d.diff && d.diff.broken.length > 0 && d.ops.some((o) => o.op === "deprecate_service") && (
+          <button type="button" className="btn btn-primary" onClick={() => setPlanning(true)} title="Search parallel companies for the order of steps that breaks nothing">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+              <circle cx="3" cy="8" r="1.6" />
+              <circle cx="13" cy="3.5" r="1.6" />
+              <circle cx="13" cy="12.5" r="1.6" />
+              <path d="M4.5 7.3 11.4 4.2M4.5 8.7l6.9 3.1" />
+            </svg>
+            Find the safe path
+          </button>
+        )}
         {d?.status === "open" && (
           <Link href={`/review?u=${selected}`} className="btn" title="Read it as a plan, and approve it if you want it to happen for real">
             Review and approve
@@ -345,16 +358,27 @@ function Multiverse() {
       </div>
     );
 
+  const dialog = (
+    <AnimatePresence>
+      {planning && d && (
+        <SafePath key={d.uid} ops={d.ops as Record<string, string>[]} title={d.title} onClose={() => setPlanning(false)} />
+      )}
+    </AnimatePresence>
+  );
+
   return (
-    <Split id="multiverse" vertical={!wide}>
-      <Pane id="aside" defaultSize={wide ? 340 : "45"} minSize={wide ? 280 : 200} maxSize={wide ? 560 : undefined}>
-        {aside}
-      </Pane>
-      <Handle label="Resize the list" />
-      <Pane id="stage" minSize={wide ? 420 : 240}>
-        {right}
-      </Pane>
-    </Split>
+    <>
+      <Split id="multiverse" vertical={!wide}>
+        <Pane id="aside" defaultSize={wide ? 340 : "45"} minSize={wide ? 280 : 200} maxSize={wide ? 560 : undefined}>
+          {aside}
+        </Pane>
+        <Handle label="Resize the list" />
+        <Pane id="stage" minSize={wide ? 420 : 240}>
+          {right}
+        </Pane>
+      </Split>
+      {dialog}
+    </>
   );
 }
 

@@ -1,0 +1,1765 @@
+{
+ "ran_at": "2026-10-15T19:18",
+ "model": {
+  "provider": "anthropic",
+  "smart": "claude-haiku-5-5",
+  "fast": "claude-haiku-5-5",
+  "effort": "low",
+  "available": true
+ },
+ "k_docs": 15,
+ "questions": [
+  {
+   "kind": "decided",
+   "q": "Is ADR-013 (Keep sso-legacy until invoice-render migrates (BILL-207)) still in force? Answer accepted, superseded or reversed.",
+   "truth": "accepted",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 12055,
+    "answer": "ADR-013 is still in force: it is accepted, and nothing in the records has superseded or reversed it. sso-legacy must stay up until BILL-207 (invoice-render's move to identity) lands, and BILL-207 is still blocked on IDN-58 as of 28 September.\nADR-013 (Keep sso-legacy until invoice-render migrates (BILL-207)) is accepted and still in force.\nADR-013 reversed ADR-011, which had set sso-legacy to go dark on 17 March 2026.\nBILL-207 is still blocked, waiting on IDN-58 from Platform for a signing-token endpoint in identity, as of 28 September 2026.",
+    "claims": [
+     {
+      "text": "ADR-013 (Keep sso-legacy until invoice-render migrates (BILL-207)) is accepted and still in force.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-013 reversed ADR-011, which had set sso-legacy to go dark on 17 March 2026.",
+      "verdict": "partial"
+     },
+     {
+      "text": "BILL-207 is still blocked, waiting on IDN-58 from Platform for a signing-token endpoint in identity, as of 28 September 2026.",
+      "verdict": "judged"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 2829,
+    "answer": "Accepted, and still in force. No record shows ADR-013 being superseded or reversed. ADR-011 (retire sso-legacy on 2026-03-17) is marked 'later reverses by ADR-013', so ADR-013 reverses ADR-011. The records contain only that reference, not ADR-013's full text. The #billing message from Tomasz Nowak (2026-04-02) says BILL-207 needs a signing-token endpoint in identity first, and he filed IDN-58 for Platform, which fits the keep-sso-legacy-until-migration rationale."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows identity? Name the people.",
+   "truth": [
+    "Kofi Mensah",
+    "Rafael Costa",
+    "Yusuf Demir"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Kofi Mensah",
+     "Rafael Costa",
+     "Yusuf Demir"
+    ],
+    "ms": 3520,
+    "answer": "Three people actually know identity: Kofi Mensah, Yusuf Demir and Rafael Costa, all on the Platform team, which is also its declared owner.\nThree people know the identity system: Kofi Mensah, Yusuf Demir and Rafael Costa.\nThe Platform team is the declared owner of identity, per the service catalog.",
+    "claims": [
+     {
+      "text": "Three people know the identity system: Kofi Mensah, Yusuf Demir and Rafael Costa.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The Platform team is the declared owner of identity, per the service catalog.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.75,
+    "recall": 1.0,
+    "made_up": [
+     "Priya Raman"
+    ],
+    "said": [
+     "Kofi Mensah",
+     "Priya Raman",
+     "Rafael Costa",
+     "Yusuf Demir"
+    ],
+    "ms": 3346,
+    "answer": "Based only on the records, three people have the most hands-on identity work: Yusuf Demir (commits on SCIM sync metrics, token signing key metrics, and SCIM sync edge cases, plus he reported the p99 creep on identity and announced its config change), Kofi Mensah (commits on session refresh metrics, OIDC discovery tests, and MFA enrolment edge cases, and posted the green identity deploy), and Rafael Costa (commits fixing OIDC discovery and service token scopes, and gave the quick review Kofi thanked him for). Priya Raman approved ADR-011 but the records show no identity code from her, so she is a decision-maker rather than a demonstrated expert. Tomasz Nowak only filed IDN-58 for Platform and is not shown working on identity. The records are commit and chat history, so they show who has touched identity, not who understands it deeply."
+   }
+  },
+  {
+   "kind": "decided",
+   "q": "Is ADR-002 (Every service signs users in through sso-legacy) still in force? Answer accepted, superseded or reversed.",
+   "truth": "superseded",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "superseded",
+    "ms": 6074,
+    "answer": "ADR-002 is superseded, not in force. It was replaced by ADR-005 (Build identity (OIDC) and retire sso-legacy), accepted 2025-01-13.\nADR-002 (Every service signs users in through sso-legacy) is superseded.\nADR-005 (Build identity (OIDC) and retire sso-legacy), accepted 2025-01-13 by Priya Raman, Yusuf Demir and Kofi Mensah, supersedes ADR-002.",
+    "claims": [
+     {
+      "text": "ADR-002 (Every service signs users in through sso-legacy) is superseded.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-005 (Build identity (OIDC) and retire sso-legacy), accepted 2025-01-13 by Priya Raman, Yusuf Demir and Kofi Mensah, supersedes ADR-002.",
+      "verdict": "partial"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "superseded",
+    "ms": 2652,
+    "answer": "Superseded. ADR-002 is marked as superseded by ADR-005, though ADR-005 itself is not in the records. It is no longer in force in practice: ADR-011 (2026-03-03) retired sso-legacy on 2026-03-17 because every consumer in the service catalog had moved to identity, and Yusuf Demir confirmed in #platform on 2026-03-17 that sso-legacy was off. ADR-011 is itself marked as reversed by ADR-013, which is also not in the records, so the current sign-in arrangement should be confirmed against ADR-005 and ADR-013."
+   }
+  },
+  {
+   "kind": "depends",
+   "q": "Which systems does web-console rely on, directly or indirectly?",
+   "truth": [
+    "artifact-store",
+    "billing-api",
+    "build-scheduler",
+    "cache-proxy",
+    "edge-gateway",
+    "flag-eval",
+    "identity",
+    "invoice-render",
+    "ledger",
+    "metrics-tsdb",
+    "runner-fleet",
+    "secrets-vault",
+    "sso-legacy",
+    "stream-hub",
+    "tax-engine",
+    "usage-meter"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "artifact-store",
+     "billing-api",
+     "build-scheduler",
+     "cache-proxy",
+     "edge-gateway",
+     "flag-eval",
+     "identity",
+     "invoice-render",
+     "ledger",
+     "metrics-tsdb",
+     "runner-fleet",
+     "secrets-vault",
+     "sso-legacy",
+     "stream-hub",
+     "tax-engine",
+     "usage-meter"
+    ],
+    "ms": 5458,
+    "answer": "web-console relies on 16 systems, six directly and ten further down the chain. Losing most of them would break web-console; only invoice-render, stream-hub and sso-legacy would merely degrade it.\nweb-console relies directly on billing-api, build-scheduler, edge-gateway, flag-eval, identity and metrics-tsdb.\nIndirectly, web-console also relies on artifact-store, invoice-render, ledger, runner-fleet, secrets-vault, stream-hub, tax-engine, usage-meter (two steps away), and cache-proxy and sso-legacy (three steps away).\nIn total web-console relies on 16 systems, directly or indirectly.\nIf invoice-render, stream-hub or sso-legacy fail, web-console is only degraded; losing any of the other 13 would break it.",
+    "claims": [
+     {
+      "text": "web-console relies directly on billing-api, build-scheduler, edge-gateway, flag-eval, identity and metrics-tsdb.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Indirectly, web-console also relies on artifact-store, invoice-render, ledger, runner-fleet, secrets-vault, stream-hub, tax-engine, usage-meter (two steps away), and cache-proxy and sso-legacy (three steps away).",
+      "verdict": "verified"
+     },
+     {
+      "text": "In total web-console relies on 16 systems, directly or indirectly.",
+      "verdict": "verified"
+     },
+     {
+      "text": "If invoice-render, stream-hub or sso-legacy fail, web-console is only degraded; losing any of the other 13 would break it.",
+      "verdict": "unverified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 1.0,
+    "recall": 0.0625,
+    "made_up": [],
+    "said": [
+     "sso-legacy"
+    ],
+    "ms": 2395,
+    "answer": "The records do not list web-console's dependencies directly. The only related record is ADR-002 (2024-04-08), which says every service, including the console, signs users in through sso-legacy. That ADR is marked as superseded by ADR-005, but ADR-005 is not in the records, so I can't confirm whether sso-legacy is still in use. The commit entries (for example, Anika Patel, Isabel Vega and Sam Okoro adding metrics, tests and cleanups to web-console) don't name any other systems. Based on these records alone, sso-legacy is the only system web-console is known to rely on, and that is unconfirmed."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows edge-gateway? Name the people.",
+   "truth": [
+    "Kofi Mensah",
+    "Mei Lin",
+    "Rafael Costa"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Kofi Mensah",
+     "Mei Lin",
+     "Rafael Costa"
+    ],
+    "ms": 3705,
+    "answer": "Three people actually know edge-gateway: Kofi Mensah, Mei Lin and Rafael Costa, all from the Platform team. Priya Raman and Jonas Berg have touched it but do not count as knowing it.\nKofi Mensah knows edge-gateway.\nMei Lin knows edge-gateway.\nRafael Costa knows edge-gateway.\nEdge-gateway is owned by the Platform team per the service catalog.",
+    "claims": [
+     {
+      "text": "Kofi Mensah knows edge-gateway.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Mei Lin knows edge-gateway.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Rafael Costa knows edge-gateway.",
+      "verdict": "partial"
+     },
+     {
+      "text": "Edge-gateway is owned by the Platform team per the service catalog.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.6,
+    "recall": 1.0,
+    "made_up": [
+     "Lena Fischer",
+     "Yusuf Demir"
+    ],
+    "said": [
+     "Kofi Mensah",
+     "Lena Fischer",
+     "Mei Lin",
+     "Rafael Costa",
+     "Yusuf Demir"
+    ],
+    "ms": 2955,
+    "answer": "Based on the records, the people most tied to edge-gateway are Rafael Costa, Kofi Mensah, Mei Lin, Lena Fischer and Yusuf Demir. Rafael Costa has the most visible involvement: he posted the config-change notices (2024-03-03, 2024-08-15), noted the #2122 rollout to 10% (2024-02-15), and authored commits adding metrics to the HTTP/3 listener, rate limiter and route table reload (2024-02-02, 2025-04-12, 2025-06-28). Kofi Mensah has committed metrics and tests for the HTTP/3 listener, rate limiter and request id propagation (2025-08-25, 2026-02-28, 2025-10-31, 2026-09-25) and raised the p99 latency creep on edge-gateway (2025-08-25). Mei Lin added metrics to request id propagation (2026-03-25) and tests for the TLS cipher list (2026-01-02). Lena Fischer added tests for route table reload (2026-02-09). Yusuf Demir cleaned up the HTTP/3 listener (2025-02-14). The records show who touched the code and who communicated about it, but they do not explicitly state who has deep ownership or design knowledge, so Rafael Costa and Kofi Mensah are the strongest candidates based on the evidence."
+   }
+  },
+  {
+   "kind": "decided",
+   "q": "Is ADR-012 (runner-fleet caches on local NVMe; decommission cache-proxy) still in force? Answer accepted, superseded or reversed.",
+   "truth": "accepted",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 5981,
+    "answer": "ADR-012 is still in force: it is accepted, with no record of it being superseded or reversed. It was decided on 2026-03-10 by Hana Kobayashi and Leo Marchetti of the Runtime team.\nADR-012 is accepted and still in force.\nADR-012 was decided by Hana Kobayashi and Leo Marchetti on 2026-03-10, owned by the Runtime team.\nADR-012 supersedes ADR-007; no record shows ADR-012 itself being superseded or reversed.",
+    "claims": [
+     {
+      "text": "ADR-012 is accepted and still in force.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-012 was decided by Hana Kobayashi and Leo Marchetti on 2026-03-10, owned by the Runtime team.",
+      "verdict": "judged"
+     },
+     {
+      "text": "ADR-012 supersedes ADR-007; no record shows ADR-012 itself being superseded or reversed.",
+      "verdict": "judged"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 3224,
+    "answer": "Accepted. ADR-012 is still in force. Its own record is not in the provided records, but ADR-007 is marked as superseded by ADR-012, and no record shows ADR-012 being superseded or reversed. ADR-013 reverses ADR-011 only. Note that cache-proxy still received changes in 2026 (Aiko Tanaka's config-change notice on 2026-02-19 and metrics work on 2026-02-19, and Dmitri Volkov's cleanup and documentation commits on 2026-02-03 and 2026-02-06), which doesn't fit a decommissioning, so the team may want to confirm the ADR-012 rollout status directly with its owners."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows ledger? Name the people.",
+   "truth": [
+    "Ines Okafor"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Ines Okafor"
+    ],
+    "ms": 8479,
+    "answer": "Only Ines Okafor (Billing) knows ledger. Six other Billing people have touched it, but the records don't count them as knowing it.\nInes Okafor is the only person who knows ledger.\nInes Okafor has 14 changes or reviews on ledger, most recently on 2026-08-07.\nBilling is the declared owner of ledger, per the service catalog.\nDaniel Osei, Ethan Brooks, Felipe Ortega, Amara Nwosu, Julia Kowalczyk and Tomasz Nowak have touched ledger but do not count as knowing it.",
+    "claims": [
+     {
+      "text": "Ines Okafor is the only person who knows ledger.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Ines Okafor has 14 changes or reviews on ledger, most recently on 2026-08-07.",
+      "verdict": "judged"
+     },
+     {
+      "text": "Billing is the declared owner of ledger, per the service catalog.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Daniel Osei, Ethan Brooks, Felipe Ortega, Amara Nwosu, Julia Kowalczyk and Tomasz Nowak have touched ledger but do not count as knowing it.",
+      "verdict": "judged"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.2,
+    "recall": 1.0,
+    "made_up": [
+     "Daniel Osei",
+     "Felipe Ortega",
+     "Julia Kowalczyk",
+     "Tomasz Nowak"
+    ],
+    "said": [
+     "Daniel Osei",
+     "Felipe Ortega",
+     "Ines Okafor",
+     "Julia Kowalczyk",
+     "Tomasz Nowak"
+    ],
+    "ms": 2789,
+    "answer": "Based only on the records, the people most associated with the ledger are Ines Okafor, Julia Kowalczyk, and Felipe Ortega. Ines Okafor wrote the ledger runbook (2025-09-02), announced a ledger config change (2025-09-17), paired on ledger with Daniel (2026-04-22), and posted a ledger review request (2026-08-07). Julia Kowalczyk shipped the document reconciliation job (#2235, 2024-06-04) and has several ledger metrics commits (FX rounding, balance snapshots, reconciliation job, 2024-2025). Felipe Ortega has multiple ledger metrics commits on journal idempotency (2025-12-31, 2026-01-21, 2026-02-05) and announced a green ledger deploy (2025-05-20), crediting Tomasz for the review. Other names appearing in ledger context are Daniel (paired with Ines, no other detail) and Tomasz (reviewer). The records do not explicitly state who is the deepest expert, so this is inferred from activity volume and authorship."
+   }
+  },
+  {
+   "kind": "decided",
+   "q": "Is ADR-011 (Retire sso-legacy on 2026-03-17) still in force? Answer accepted, superseded or reversed.",
+   "truth": "reversed",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "reversed",
+    "ms": 9094,
+    "answer": "ADR-011 is reversed, not in force. ADR-013 (2026-03-26) reversed it after retiring sso-legacy broke invoice rendering (INC-311); sso-legacy stays until invoice-render migrates (BILL-207).\nADR-011 (Retire sso-legacy on 2026-03-17) is reversed.\nADR-013 superseded ADR-011 and keeps sso-legacy until invoice-render migrates (BILL-207).\nRetiring sso-legacy broke invoice rendering for about five and a half hours because invoice-render relied on it for its signing token, a dependency missing from the catalog.",
+    "claims": [
+     {
+      "text": "ADR-011 (Retire sso-legacy on 2026-03-17) is reversed.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-013 superseded ADR-011 and keeps sso-legacy until invoice-render migrates (BILL-207).",
+      "verdict": "partial"
+     },
+     {
+      "text": "Retiring sso-legacy broke invoice rendering for about five and a half hours because invoice-render relied on it for its signing token, a dependency missing from the catalog.",
+      "verdict": "judged"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "reversed",
+    "ms": 3161,
+    "answer": "Reversed, not still in force. ADR-011 is marked 'later reverses by ADR-013'. The records do not include ADR-013's text, so its details are unknown. ADR-011 was approved by Priya Raman in #platform on 2026-03-03, and Yusuf Demir confirmed sso-legacy was off on 2026-03-17. Later activity on sso-legacy (Kofi Mensah's review of #2940 on 2026-05-03, Yusuf Demir's green deploy on 2026-08-17, and his pairing session with Kofi on 2026-08-26) indicates it was back in use, but the records don't explicitly say why ADR-013 reversed it."
+   }
+  },
+  {
+   "kind": "depends",
+   "q": "Which systems does invoice-render rely on, directly or indirectly?",
+   "truth": [
+    "ledger",
+    "secrets-vault",
+    "sso-legacy"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "ledger",
+     "secrets-vault",
+     "sso-legacy"
+    ],
+    "ms": 4526,
+    "answer": "Invoice-render relies on three systems: ledger and sso-legacy directly, and secrets-vault indirectly (two steps away). Losing sso-legacy or secrets-vault breaks invoice-render; losing ledger leaves its data stale.\ninvoice-render relies on ledger directly; losing it leaves invoice-render's data stale.\ninvoice-render relies on sso-legacy directly; losing it breaks invoice-render.\ninvoice-render relies on secrets-vault indirectly, two steps away; losing it breaks invoice-render.\ninvoice-render relies on exactly three systems in total, directly or indirectly: ledger, sso-legacy and secrets-vault.",
+    "claims": [
+     {
+      "text": "invoice-render relies on ledger directly; losing it leaves invoice-render's data stale.",
+      "verdict": "verified"
+     },
+     {
+      "text": "invoice-render relies on sso-legacy directly; losing it breaks invoice-render.",
+      "verdict": "verified"
+     },
+     {
+      "text": "invoice-render relies on secrets-vault indirectly, two steps away; losing it breaks invoice-render.",
+      "verdict": "verified"
+     },
+     {
+      "text": "invoice-render relies on exactly three systems in total, directly or indirectly: ledger, sso-legacy and secrets-vault.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "made_up": [],
+    "said": [
+     "sso-legacy"
+    ],
+    "ms": 1989,
+    "answer": "Based on the records, invoice-render directly relies on sso-legacy: per ADR-013 and the INC-311 postmortem by Rafael Costa, invoice-render calls sso-legacy to obtain its signing token. Retiring sso-legacy took down invoice rendering for about five and a half hours, and the postmortem notes that this dependency was in no catalog. The records do not show any other systems that invoice-render depends on, either directly or indirectly, so the answer is limited to sso-legacy. The records also do not establish whether sso-legacy has its own dependencies. The follow-up items are BILL-207 (migrating invoice-render off sso-legacy) and a check comparing the service catalog with real traffic."
+   }
+  },
+  {
+   "kind": "decided",
+   "q": "Is ADR-007 (Put a read-through cache in front of artifact-store) still in force? Answer accepted, superseded or reversed.",
+   "truth": "superseded",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "superseded",
+    "ms": 10148,
+    "answer": "ADR-007 is superseded, not in force. ADR-012 replaced it on 2026-03-10 and is itself accepted.\nADR-007 is superseded and no longer in force.\nADR-007 was superseded by ADR-012, decided 2026-03-10 and accepted.\nADR-007 was decided 2025-09-08 by Hana Kobayashi and Leo Marchetti of the Runtime team.",
+    "claims": [
+     {
+      "text": "ADR-007 is superseded and no longer in force.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-007 was superseded by ADR-012, decided 2026-03-10 and accepted.",
+      "verdict": "partial"
+     },
+     {
+      "text": "ADR-007 was decided 2025-09-08 by Hana Kobayashi and Leo Marchetti of the Runtime team.",
+      "verdict": "judged"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "superseded",
+    "ms": 2913,
+    "answer": "Superseded. The ADR-007 record is marked \"later supersedes by ADR-012\", but ADR-012 is not included in the records, so its content and date can't be checked. Leo Marchetti's #runtime message of 2026-08-22 says runner-fleet stopped going through cache-proxy in August and that the NVMe cache now handles everything, which is consistent with the read-through cache in front of artifact-store no longer being in use. No record shows ADR-007 being reversed."
+   }
+  },
+  {
+   "kind": "breaks",
+   "q": "If we switched off ledger today, which systems would stop working or degrade?",
+   "truth": [
+    "billing-api",
+    "invoice-render",
+    "onboarding",
+    "web-console"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "billing-api",
+     "invoice-render",
+     "onboarding",
+     "web-console"
+    ],
+    "ms": 14545,
+    "answer": "Switching off ledger would stop billing-api, web-console and onboarding, degrade invoice-render to out-of-date data, and affect 16 customers. The what-if is rated high risk and cannot be auto-approved.\nIf ledger is switched off, three systems would stop working: billing-api, web-console and onboarding.\ninvoice-render would keep running but on out-of-date data (degraded, not stopped).\n16 customers would notice: Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank, Vireo Mobility, Brightline Games, Copperleaf Energy, Fernway, Glasswing Security, Quillsoft, Sable Analytics, Tandem Logistics, Juniper Learning, Kiln Studio, Larkspur Media and Otterly.\nThe Billing and Console teams must approve the change.\nThe switch-off what-if is rated high risk (score 100) and cannot be auto-approved.\nInes Okafor is the only person who knows invoice-render, so it is the one system with a single knower.\nAmara Nwosu, Felipe Ortega and Julia Kowalczyk know billing-api, so it would still have people who know it after the switch-off.",
+    "claims": [
+     {
+      "text": "If ledger is switched off, three systems would stop working: billing-api, web-console and onboarding.",
+      "verdict": "partial"
+     },
+     {
+      "text": "invoice-render would keep running but on out-of-date data (degraded, not stopped).",
+      "verdict": "judged"
+     },
+     {
+      "text": "16 customers would notice: Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank, Vireo Mobility, Brightline Games, Copperleaf Energy, Fernway, Glasswing Security, Quillsoft, Sable Analytics, Tandem Logistics, Juniper Learning, Kiln Studio, Larkspur Media and Otterly.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The Billing and Console teams must approve the change.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The switch-off what-if is rated high risk (score 100) and cannot be auto-approved.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Ines Okafor is the only person who knows invoice-render, so it is the one system with a single knower.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Amara Nwosu, Felipe Ortega and Julia Kowalczyk know billing-api, so it would still have people who know it after the switch-off.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 1.0,
+    "recall": 0.25,
+    "made_up": [],
+    "said": [
+     "billing-api"
+    ],
+    "ms": 2951,
+    "answer": "The records name only a few dependencies, so this answer is partial. The nightly reconciliation job compares ledger postings with billing-api subscriptions, so it would stop running, and Ines Okafor's runbook (2025-09-02) says reconciliation failures freeze refunds, which suggests refund processing depends on that check and would be affected. The billing-api is the system the reconciliation compares against, so it would lose its ledger-side check. The records don't say whether anything else reads from the ledger, such as invoicing, dashboards, or the document reconciliation job (#2235, shipped by Julia Kowalczyk), so I can't confirm those would stop or degrade. Ines Okafor or Felipe Ortega, who work on the ledger, would be the people to confirm the full list."
+   }
+  },
+  {
+   "kind": "count",
+   "q": "How many systems would break or degrade if sso-legacy were switched off?",
+   "truth": 5,
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     5
+    ],
+    "ms": 6353,
+    "answer": "Switching off sso-legacy would hit five systems: two would break (invoice-render, reports-legacy) and three would degrade (billing-api, onboarding, web-console). The invoice-render link, and therefore the three indirect hits, is not declared anywhere.\nFive systems would be hit by switching off sso-legacy.\ninvoice-render would break.\nreports-legacy would break.\nbilling-api, onboarding and web-console would degrade indirectly through invoice-render; the invoice-render link is undeclared.",
+    "claims": [
+     {
+      "text": "Five systems would be hit by switching off sso-legacy.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "invoice-render would break.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "reports-legacy would break.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "billing-api, onboarding and web-console would degrade indirectly through invoice-render; the invoice-render link is undeclared.",
+      "verdict": "unverified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [
+     1
+    ],
+    "ms": 4713,
+    "answer": "The records confirm one system that would break: invoice-render. Rafael Costa's postmortem (INC-311, 2026-03-27) says retiring sso-legacy broke invoice rendering for five and a half hours because invoice-render used it for its PDF signing token. ADR-013 (2026-03-26) therefore keeps sso-legacy running until invoice-render migrates under BILL-207. A 2026-03-25 record says invoice-render should fetch the signing token from identity, but no record confirms that change shipped, so invoice-render would likely still break today. The records don't identify any other consumers. ADR-011 and Priya Raman's post said every catalog consumer had moved to identity, but INC-311 showed the catalog missed this dependency, so other unlisted callers can't be ruled out. The answer is at least one (invoice-render) and possibly more, with the true count unknown."
+   }
+  },
+  {
+   "kind": "breaks",
+   "q": "If we switched off sso-legacy today, which systems would stop working or degrade?",
+   "truth": [
+    "billing-api",
+    "invoice-render",
+    "onboarding",
+    "reports-legacy",
+    "web-console"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "billing-api",
+     "invoice-render",
+     "onboarding",
+     "reports-legacy",
+     "web-console"
+    ],
+    "ms": 11774,
+    "answer": "Switching off sso-legacy today would stop two systems (invoice-render and reports-legacy) and degrade three more (billing-api, onboarding, web-console), touching 15 customers including 5 enterprise accounts. The fork rates it high risk (score 100) and it cannot be auto-approved.\nSwitching off sso-legacy would stop invoice-render and reports-legacy from working.\nThree further systems would slow down or partly fail: billing-api, onboarding and web-console.\nThe invoice-render link to sso-legacy is not in the declared dependency records; it is only visible through the undeclared route, so the impact could be missed in planning.\nCustomers who would notice: enterprise Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility; growth Brightline Games, Copperleaf Energy, Fernway, Glasswing Security, Quillsoft, Sable Analytics and Tandem Logistics; starter Juniper Learning, Kiln Studio, Larkspur Media and Otterly.\nFour teams must approve before the change: Billing, Console, Data and Platform.\nThe fork's risk score is 100, rated high, and it is not eligible for auto-approval.",
+    "claims": [
+     {
+      "text": "Switching off sso-legacy would stop invoice-render and reports-legacy from working.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Three further systems would slow down or partly fail: billing-api, onboarding and web-console.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The invoice-render link to sso-legacy is not in the declared dependency records; it is only visible through the undeclared route, so the impact could be missed in planning.",
+      "verdict": "unsupported"
+     },
+     {
+      "text": "Customers who would notice: enterprise Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility; growth Brightline Games, Copperleaf Energy, Fernway, Glasswing Security, Quillsoft, Sable Analytics and Tandem Logistics; starter Juniper Learning, Kiln Studio, Larkspur Media and Otterly.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Four teams must approve before the change: Billing, Console, Data and Platform.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The fork's risk score is 100, rated high, and it is not eligible for auto-approval.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.5,
+    "recall": 0.2,
+    "made_up": [
+     "identity"
+    ],
+    "said": [
+     "identity",
+     "invoice-render"
+    ],
+    "ms": 4942,
+    "answer": "Per the records, invoice-render is the one system confirmed to break. ADR-013 (2026-03-26) kept sso-legacy running until invoice-render migrates under BILL-207, because retiring it took down invoice rendering for five and a half hours in INC-311 (postmortem by Rafael Costa). invoice-render relies on sso-legacy for its PDF signing token. A 2026-03-25 change said invoice-render should fetch that token from identity instead, but the records don't confirm it shipped or that BILL-207 is complete, so assume invoice-render would fail. Beyond that, the records don't name other consumers. ADR-011 and Priya Raman's 2026-03-03 post say every consumer in the service catalog moved to identity, but INC-311 showed the catalog missed a real dependency, and the follow-up check comparing the catalog with real traffic has no recorded completion. So other hidden dependents could break or degrade, and nothing in the records rules that out. Sso-legacy is also still in active use: Yusuf Demir shipped a deploy on 2026-08-17 and paired with Kofi Mensah on it on 2026-08-26. Kofi Mensah also reported p99 creep on it on 2026-01-17. Before switching it off, confirm BILL-207 is closed and check real traffic to sso-legacy, not only the catalog."
+   }
+  },
+  {
+   "kind": "count",
+   "q": "How many systems would break or degrade if ledger were switched off?",
+   "truth": 4,
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     4
+    ],
+    "ms": 10524,
+    "answer": "Switching off ledger would break or degrade 4 systems: billing-api, web-console and onboarding stop working, and invoice-render runs on out-of-date data. The what-if scores risk 100 (high) and needs Billing and Console to approve. This matches the earlier simulation (u1).\nSwitching off ledger would break or degrade 4 systems.\nThree systems would stop working: billing-api, onboarding and web-console.\ninvoice-render would keep running but on out-of-date data.\nRisk score of switching off ledger is 100 (high), and it cannot be auto-approved.\nBilling and Console teams must approve the change.\n16 customers would be affected, 5 of them enterprise, mostly through web-console and invoice-render.",
+    "claims": [
+     {
+      "text": "Switching off ledger would break or degrade 4 systems.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Three systems would stop working: billing-api, onboarding and web-console.",
+      "verdict": "partial"
+     },
+     {
+      "text": "invoice-render would keep running but on out-of-date data.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Risk score of switching off ledger is 100 (high), and it cannot be auto-approved.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Billing and Console teams must approve the change.",
+      "verdict": "verified"
+     },
+     {
+      "text": "16 customers would be affected, 5 of them enterprise, mostly through web-console and invoice-render.",
+      "verdict": "unsupported"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [
+     9
+    ],
+    "ms": 2920,
+    "answer": "The records don't give a definitive count. The only system explicitly tied to ledger is the nightly reconciliation job, which compares ledger postings with billing-api subscriptions, so it would stop working if ledger were switched off. Per Ines Okafor's Ledger runbook (2025-09-02), a reconciliation failure means freezing refunds and paging Billing, so refunds would also be affected. The records don't show whether billing-api itself would break, or whether Julia Kowalczyk's document reconciliation job (#2235) depends on ledger. Based only on these records, the answer is one directly affected system (the nightly reconciliation job), with refunds affected as a downstream process, and possibly more that aren't documented."
+   }
+  },
+  {
+   "kind": "breaks",
+   "q": "If we switched off identity today, which systems would stop working or degrade?",
+   "truth": [
+    "alert-router",
+    "billing-api",
+    "build-scheduler",
+    "docs-site",
+    "edge-gateway",
+    "onboarding",
+    "web-console"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "alert-router",
+     "billing-api",
+     "build-scheduler",
+     "docs-site",
+     "edge-gateway",
+     "onboarding",
+     "web-console"
+    ],
+    "ms": 8854,
+    "answer": "Switching off identity today would break seven systems: six directly and docs-site indirectly through edge-gateway.\nSwitching off identity would break seven systems in total.\nalert-router breaks (owned by Signals).\nbilling-api breaks (owned by Billing).\nbuild-scheduler breaks (owned by Runtime).\nedge-gateway breaks (owned by Platform).\nonboarding breaks (owned by Console).\nweb-console breaks (owned by Console).\ndocs-site breaks indirectly, through edge-gateway (owned by Console).",
+    "claims": [
+     {
+      "text": "Switching off identity would break seven systems in total.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "alert-router breaks (owned by Signals).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "billing-api breaks (owned by Billing).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "build-scheduler breaks (owned by Runtime).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "edge-gateway breaks (owned by Platform).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "onboarding breaks (owned by Console).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "web-console breaks (owned by Console).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "docs-site breaks indirectly, through edge-gateway (owned by Console).",
+      "verdict": "unverified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [
+     "sso-legacy"
+    ],
+    "said": [
+     "sso-legacy"
+    ],
+    "ms": 5039,
+    "answer": "The records don't name the specific systems that depend on identity, so I can't give a confirmed list. What they do show: ADR-005 (2025-01-13) made identity the replacement for sso-legacy, because SAML-only sign-on blocked SCIM and service tokens, so SCIM sync and service-token issuance are the likely functions that would stop. ADR-011 (2026-03-03) says every consumer in the service catalog had moved to identity, but it was later reversed by ADR-013, which isn't in the records, so I can't confirm the current consumers. BILL-207 (Tomasz Nowak, #billing, 2026-04-02) is blocked until identity has a signing-token endpoint, which Platform was asked to build as IDN-58, so billing signing is not yet dependent on identity. Identity-related work is owned by Yusuf Demir (SCIM sync metrics and SCIM edge cases), Kofi Mensah (session refresh, MFA enrolment and OIDC discovery tests), and Rafael Costa (OIDC discovery fix and service token scopes). Check the service catalog and ADR-013 to get the full list of consumers."
+   }
+  },
+  {
+   "kind": "breaks",
+   "q": "If we switched off stream-hub today, which systems would stop working or degrade?",
+   "truth": [
+    "alert-router",
+    "billing-api",
+    "build-scheduler",
+    "docs-site",
+    "edge-gateway",
+    "flag-eval",
+    "log-ingest",
+    "metrics-tsdb",
+    "notify-mailer",
+    "onboarding",
+    "reports-legacy",
+    "trace-collector",
+    "usage-meter",
+    "warehouse",
+    "web-console"
+   ],
+   "orion": {
+    "correct": false,
+    "precision": 0.9375,
+    "recall": 1.0,
+    "made_up": [
+     "secrets-vault"
+    ],
+    "said": [
+     "alert-router",
+     "billing-api",
+     "build-scheduler",
+     "docs-site",
+     "edge-gateway",
+     "flag-eval",
+     "log-ingest",
+     "metrics-tsdb",
+     "notify-mailer",
+     "onboarding",
+     "reports-legacy",
+     "secrets-vault",
+     "trace-collector",
+     "usage-meter",
+     "warehouse",
+     "web-console"
+    ],
+    "ms": 13360,
+    "answer": "Switching off stream-hub would affect 15 systems: 13 would slow down or partly fail and 2 (warehouse, reports-legacy) would run on stale data. The what-if rates this as high risk (score 100) and needs six teams to approve.\nSwitching off stream-hub would break 15 systems in total, directly or through other systems.\nDirectly affected: build-scheduler, flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector, usage-meter and warehouse.\nAffected through one other system: alert-router, billing-api, edge-gateway, onboarding, reports-legacy, web-console and docs-site.\n13 of the affected systems would slow down or partly fail; warehouse and reports-legacy would only run on out-of-date data.\nRisk of the switch-off is high (score 100) and it cannot be auto-approved.\nSix teams must approve: Billing, Console, Data, Platform, Runtime and Signals.\n16 customers would notice: 5 enterprise (Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank, Vireo Mobility), 7 growth and 4 starter customers.\nNothing would be left without anyone who knows it, and the stream-hub's secrets-vault link would be closed.",
+    "claims": [
+     {
+      "text": "Switching off stream-hub would break 15 systems in total, directly or through other systems.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "Directly affected: build-scheduler, flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector, usage-meter and warehouse.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Affected through one other system: alert-router, billing-api, edge-gateway, onboarding, reports-legacy, web-console and docs-site.",
+      "verdict": "verified"
+     },
+     {
+      "text": "13 of the affected systems would slow down or partly fail; warehouse and reports-legacy would only run on out-of-date data.",
+      "verdict": "partial"
+     },
+     {
+      "text": "Risk of the switch-off is high (score 100) and it cannot be auto-approved.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Six teams must approve: Billing, Console, Data, Platform, Runtime and Signals.",
+      "verdict": "verified"
+     },
+     {
+      "text": "16 customers would notice: 5 enterprise (Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank, Vireo Mobility), 7 growth and 4 starter customers.",
+      "verdict": "unsupported"
+     },
+     {
+      "text": "Nothing would be left without anyone who knows it, and the stream-hub's secrets-vault link would be closed.",
+      "verdict": "unverified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "alert-router",
+     "billing-api",
+     "build-scheduler",
+     "docs-site",
+     "edge-gateway",
+     "flag-eval",
+     "log-ingest",
+     "metrics-tsdb",
+     "notify-mailer",
+     "onboarding",
+     "reports-legacy",
+     "trace-collector",
+     "usage-meter",
+     "warehouse",
+     "web-console"
+    ],
+    "ms": 5009,
+    "answer": "Based on the service catalog (dated 2026-09-01), switching off stream-hub would directly break 8 services and indirectly affect 7 more. Direct dependents: flag-eval (Platform, tier 1), usage-meter (Billing, tier 1), build-scheduler (Runtime, tier 1), log-ingest (Signals, tier 1), metrics-tsdb (Signals, tier 1), trace-collector (Signals, tier 2), notify-mailer (Console, tier 2), and warehouse (Data, tier 2). Indirect dependents: edge-gateway (Platform, tier 1) via flag-eval; billing-api (Billing, tier 1) via usage-meter; alert-router (Signals, tier 1) via metrics-tsdb and notify-mailer; web-console (Console, tier 1) via billing-api, build-scheduler, edge-gateway, flag-eval and metrics-tsdb; onboarding (Console, tier 2) via billing-api and notify-mailer; docs-site (Console, tier 3) via edge-gateway; and reports-legacy (Data, tier 3) via warehouse. The most serious impact would be on tier 1 systems such as web-console, build-scheduler, billing-api, edge-gateway, and alert-router. Systems that do not depend on stream-hub and would keep running include identity, sso-legacy, secrets-vault, ledger, invoice-render, tax-engine, runner-fleet, artifact-store, and cache-proxy. The catalog does not name individual engineers as owners, only teams. Arjun Mehta and Wei Zhang appear in the records as stream-hub migration and cluster work leads, but the records do not state who is on call for it."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows billing-api? Name the people.",
+   "truth": [
+    "Amara Nwosu",
+    "Felipe Ortega",
+    "Julia Kowalczyk"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Amara Nwosu",
+     "Felipe Ortega",
+     "Julia Kowalczyk"
+    ],
+    "ms": 4448,
+    "answer": "Three people actually know billing-api: Felipe Ortega, Amara Nwosu and Julia Kowalczyk, all in the Billing team. Three other Billing members have touched it but do not count as knowing it.\nThree people actually know billing-api: Felipe Ortega, Amara Nwosu and Julia Kowalczyk.\nThe declared owner of billing-api is the Billing team, per the service catalog.",
+    "claims": [
+     {
+      "text": "Three people actually know billing-api: Felipe Ortega, Amara Nwosu and Julia Kowalczyk.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The declared owner of billing-api is the Billing team, per the service catalog.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.75,
+    "recall": 1.0,
+    "made_up": [
+     "Tomasz Nowak"
+    ],
+    "said": [
+     "Amara Nwosu",
+     "Felipe Ortega",
+     "Julia Kowalczyk",
+     "Tomasz Nowak"
+    ],
+    "ms": 4065,
+    "answer": "The records show who has committed to billing-api, which is the closest evidence available, not proof of who truly knows it. Four people appear: Tomasz Nowak (3 commits: add metrics to seat counting 2025-05-13, add tests for trial expiry 2024-08-04, clean up subscription webhooks 2025-11-28), Julia Kowalczyk (3 commits: add tests for seat counting 2024-06-13, document plan change flow 2024-01-05, document seat counting 2024-04-20), Felipe Ortega (3 commits: clean up seat counting 2026-02-27, clean up subscription webhooks 2024-11-17, document plan change flow 2026-04-18), and Amara Nwosu (2 commits: add metrics to trial expiry 2025-12-28, document plan change flow 2024-07-15). Tomasz Nowak is also the most active in #billing, where he raised BILL-207. The records do not show who maintains or is on call for the service, so that would need confirming with the team."
+   }
+  },
+  {
+   "kind": "count",
+   "q": "How many systems would break or degrade if identity were switched off?",
+   "truth": 7,
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     7
+    ],
+    "ms": 7348,
+    "answer": "Switching off identity would break seven systems: six directly and one (docs-site) through edge-gateway. The records mark all seven as breaking, with none listed as merely degraded.\nSeven systems would break if identity were switched off.\nalert-router relies on identity and would break (owner: Signals).\nbilling-api relies on identity and would break (owner: Billing).\nbuild-scheduler relies on identity and would break (owner: Runtime).\nedge-gateway relies on identity and would break (owner: Platform).\nonboarding relies on identity and would break (owner: Console).\nweb-console relies on identity and would break (owner: Console).\ndocs-site would break through edge-gateway, two steps away from identity (owner: Console).",
+    "claims": [
+     {
+      "text": "Seven systems would break if identity were switched off.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "alert-router relies on identity and would break (owner: Signals).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "billing-api relies on identity and would break (owner: Billing).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "build-scheduler relies on identity and would break (owner: Runtime).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "edge-gateway relies on identity and would break (owner: Platform).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "onboarding relies on identity and would break (owner: Console).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "web-console relies on identity and would break (owner: Console).",
+      "verdict": "unverified"
+     },
+     {
+      "text": "docs-site would break through edge-gateway, two steps away from identity (owner: Console).",
+      "verdict": "unverified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [
+     11
+    ],
+    "ms": 3017,
+    "answer": "The records do not give a number. They don't list which systems depend on identity or count any outages. The closest evidence: ADR-011 (2026-03-03, approved by Priya Raman in #platform) said every consumer in the service catalog had moved to identity, but ADR-011 was later reversed by ADR-013, and the records don't include ADR-013's contents, so that claim can't be relied on. Identity also has at least one known dependent: Tomasz Nowak said in #billing (2026-04-02) that BILL-207 needs a signing-token endpoint in identity first, and he filed IDN-58 for Platform. Yusuf Demir and Kofi Mensah have also been active on identity's metrics and SCIM sync work. To get a count, someone would need to check the service catalog or dependency map, which isn't in these records."
+   }
+  },
+  {
+   "kind": "decided",
+   "q": "Is ADR-005 (Build identity (OIDC) and retire sso-legacy) still in force? Answer accepted, superseded or reversed.",
+   "truth": "accepted",
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 6864,
+    "answer": "ADR-005 (Build identity (OIDC) and retire sso-legacy) is still in force. The records show it as accepted, with no superseding or reversing decision.\nADR-005 is accepted and still in force.\nADR-005 was decided on 2025-01-13 by Priya Raman, Yusuf Demir and Kofi Mensah, under the Platform team.\nADR-005 supersedes ADR-002; nothing in the records supersedes or reverses ADR-005.",
+    "claims": [
+     {
+      "text": "ADR-005 is accepted and still in force.",
+      "verdict": "verified"
+     },
+     {
+      "text": "ADR-005 was decided on 2025-01-13 by Priya Raman, Yusuf Demir and Kofi Mensah, under the Platform team.",
+      "verdict": "judged"
+     },
+     {
+      "text": "ADR-005 supersedes ADR-002; nothing in the records supersedes or reverses ADR-005.",
+      "verdict": "contradicted"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "accepted",
+    "ms": 5485,
+    "answer": "Accepted, as far as these records show. No record says ADR-005 is superseded or reversed. Its only listed link is ADR-002 being superseded by it. Its full text isn't in the records, so the answer rests on that link and the absence of any other status change. Related caveats: ADR-011 (retire sso-legacy on 2026-03-17) says it is reversed by ADR-013, but ADR-013 is not in the records, so that reversal can't be verified. Yusuf Demir confirmed sso-legacy was turned off on 2026-03-17, yet Kofi Mensah reviewed #2940 on sso-legacy on 2026-05-03, and Yusuf Demir reported a green sso-legacy deploy on 2026-08-17 and paired with Kofi Mensah on it on 2026-08-26. Those later changes suggest sso-legacy is active again, which fits a reversal of ADR-011, but that is not confirmed in the records."
+   }
+  },
+  {
+   "kind": "count",
+   "q": "How many systems would break or degrade if secrets-vault were switched off?",
+   "truth": 21,
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     21
+    ],
+    "ms": 11383,
+    "answer": "Switching off secrets-vault would affect 21 systems: 14 would stop working, 6 would slow down or partly fail, and 1 (warehouse) would run on out-of-date data. The fork rates this change as high risk.\nSwitching off secrets-vault affects 21 systems in total.\n14 systems would stop working: identity, ledger, runner-fleet, sso-legacy, stream-hub, alert-router, billing-api, build-scheduler, edge-gateway, invoice-render, onboarding, reports-legacy, web-console, docs-site.\n6 systems would slow down or partly fail: flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector, usage-meter.\n1 system, warehouse, would run on out-of-date data.\nThe fork rates switching off secrets-vault as high risk (score 100), not auto-approvable.\nSeven teams must approve: Billing, Console, Data, Platform, Runtime, Signals (six teams owning broken systems) plus Platform for secrets-vault itself.\ninvoice-render would break only through an undeclared dependency on sso-legacy, so it is easy to miss in planning.\nEnterprise customers Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility would notice, along with several growth and starter customers.",
+    "claims": [
+     {
+      "text": "Switching off secrets-vault affects 21 systems in total.",
+      "verdict": "verified"
+     },
+     {
+      "text": "14 systems would stop working: identity, ledger, runner-fleet, sso-legacy, stream-hub, alert-router, billing-api, build-scheduler, edge-gateway, invoice-render, onboarding, reports-legacy, web-console, docs-site.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "6 systems would slow down or partly fail: flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector, usage-meter.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "1 system, warehouse, would run on out-of-date data.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "The fork rates switching off secrets-vault as high risk (score 100), not auto-approvable.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Seven teams must approve: Billing, Console, Data, Platform, Runtime, Signals (six teams owning broken systems) plus Platform for secrets-vault itself.",
+      "verdict": "verified"
+     },
+     {
+      "text": "invoice-render would break only through an undeclared dependency on sso-legacy, so it is easy to miss in planning.",
+      "verdict": "unsupported"
+     },
+     {
+      "text": "Enterprise customers Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility would notice, along with several growth and starter customers.",
+      "verdict": "unsupported"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [
+     4
+    ],
+    "ms": 3267,
+    "answer": "The records don't say. They show no dependency or integration list for secrets-vault, so no count of systems that would break or degrade can be given. They do show what the service covers: audit trail (metrics added by Yusuf Demir in 2024-04-23, tests by Priya Raman in 2025-09-17, cleanup by Rafael Costa in 2024-09-18), key rotation (tests by Yusuf Demir and Jonas Berg, cleanup by Yusuf Demir), lease renewal (cleanup by Yusuf Demir and Rafael Costa), and seal/unseal runbook hooks (tests by Rafael Costa in 2025-05-11). Rafael Costa's 2025-08-12 #platform message announced a config change with no downtime expected. To answer the question, check the secrets-vault service documentation or ask Jonas Berg, Rafael Costa, or Yusuf Demir, who have worked on it most recently."
+   }
+  },
+  {
+   "kind": "depends",
+   "q": "Which systems does billing-api rely on, directly or indirectly?",
+   "truth": [
+    "identity",
+    "invoice-render",
+    "ledger",
+    "secrets-vault",
+    "sso-legacy",
+    "stream-hub",
+    "tax-engine",
+    "usage-meter"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "identity",
+     "invoice-render",
+     "ledger",
+     "secrets-vault",
+     "sso-legacy",
+     "stream-hub",
+     "tax-engine",
+     "usage-meter"
+    ],
+    "ms": 4613,
+    "answer": "billing-api relies on eight systems: five directly (identity, invoice-render, ledger, tax-engine, usage-meter) and three indirectly (secrets-vault, sso-legacy, stream-hub). Losing identity, ledger, tax-engine, usage-meter or secrets-vault would break it; losing invoice-render, sso-legacy or stream-hub would degrade it.\nbilling-api directly relies on identity, invoice-render, ledger, tax-engine and usage-meter.\nbilling-api indirectly relies on secrets-vault, sso-legacy and stream-hub, two steps away.\nbilling-api relies on eight systems in total, directly or indirectly.",
+    "claims": [
+     {
+      "text": "billing-api directly relies on identity, invoice-render, ledger, tax-engine and usage-meter.",
+      "verdict": "verified"
+     },
+     {
+      "text": "billing-api indirectly relies on secrets-vault, sso-legacy and stream-hub, two steps away.",
+      "verdict": "verified"
+     },
+     {
+      "text": "billing-api relies on eight systems in total, directly or indirectly.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.6666666666666666,
+    "recall": 0.25,
+    "made_up": [
+     "event-bus"
+    ],
+    "said": [
+     "event-bus",
+     "identity",
+     "sso-legacy"
+    ],
+    "ms": 3850,
+    "answer": "Based on the records, billing-api relies on these systems: (1) Kafka (event-bus), which ADR-001 names as the company's event backbone, with billing consuming events from it. ADR-008 later supersedes ADR-001, and that record is not included, so the current status of this dependency can't be confirmed. (2) sso-legacy, since ADR-002 requires every service, including billing-api, to sign users in through it. ADR-005 later supersedes ADR-002, and that record is not included, so this dependency may no longer apply. (3) The identity service, which is a pending dependency: Tomasz Nowak noted in #billing on 2026-04-02 that BILL-207 needs a signing-token endpoint in identity first, and he filed IDN-58 for Platform to build it. The records do not show whether IDN-58 is complete. The commit history only shows changes to billing-api's own code and does not name any other system it calls."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows cache-proxy? Name the people.",
+   "truth": [],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "Nobody in the records clearly knows cache-proxy.",
+    "ms": 9316,
+    "answer": "Nobody in the records clearly knows cache-proxy. Five Runtime people have touched it recently, but none meets the bar for knowing it. The service it relies on, artifact-store, is known by seven people.\nNobody in the records clearly knows cache-proxy (changes and reviews in the last 180 days).\nFive Runtime people have touched cache-proxy recently: Dmitri Volkov, Ben Carter, Leo Marchetti, Aiko Tanaka and Sven Lindqvist, but none counts as knowing it.\ncache-proxy is declared to the Runtime team in the service catalog, with no de facto owner or on-call rota recorded.\ncache-proxy relies on artifact-store, which seven people know: Sven Lindqvist, Aiko Tanaka, Leo Marchetti, Zara Ahmed, Grace Liu, Nadia Haddad and Omar Farouk.",
+    "claims": [
+     {
+      "text": "Nobody in the records clearly knows cache-proxy (changes and reviews in the last 180 days).",
+      "verdict": "verified"
+     },
+     {
+      "text": "Five Runtime people have touched cache-proxy recently: Dmitri Volkov, Ben Carter, Leo Marchetti, Aiko Tanaka and Sven Lindqvist, but none counts as knowing it.",
+      "verdict": "judged"
+     },
+     {
+      "text": "cache-proxy is declared to the Runtime team in the service catalog, with no de facto owner or on-call rota recorded.",
+      "verdict": "verified"
+     },
+     {
+      "text": "cache-proxy relies on artifact-store, which seven people know: Sven Lindqvist, Aiko Tanaka, Leo Marchetti, Zara Ahmed, Grace Liu, Nadia Haddad and Omar Farouk.",
+      "verdict": "partial"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "Based on the records, the people who have actually worked on cache-proxy are: Sven Lindqvist (most activity: added metri",
+    "ms": 3968,
+    "answer": "Based on the records, the people who have actually worked on cache-proxy are: Sven Lindqvist (most activity: added metrics to stale-while-revalidate in 2024-09-19, cleaned up hit-rate metrics in 2024-04-10, documented the eviction policy in 2024-05-13, documented hit-rate metrics in 2025-01-11, and documented stale-while-revalidate in 2025-01-04); Aiko Tanaka (added metrics to stale-while-revalidate in 2026-02-19, added tests for stale-while-revalidate in 2025-06-12, reviewed #2831 in 2026-01-20, and announced the 2026-02-19 config change); Dmitri Volkov (cleaned up hit-rate metrics in 2026-02-03); and Zara Ahmed (documented hit-rate metrics in 2025-02-05). Sven Lindqvist is the strongest candidate as the go-to expert, since he has the broadest documented involvement. Hana Kobayashi and Sven Lindqvist asked in #runtime who the best person to ask about cache-proxy internals is, but the records do not show a direct answer to that question. Note that ADR-012 (2026-03-10) decided to decommission cache-proxy in favor of local NVMe caching on runners, and a follow-up decision about whether runner-fleet still needs cache-proxy is dated 2026-09-09."
+   }
+  },
+  {
+   "kind": "breaks",
+   "q": "If we switched off secrets-vault today, which systems would stop working or degrade?",
+   "truth": [
+    "alert-router",
+    "billing-api",
+    "build-scheduler",
+    "docs-site",
+    "edge-gateway",
+    "flag-eval",
+    "identity",
+    "invoice-render",
+    "ledger",
+    "log-ingest",
+    "metrics-tsdb",
+    "notify-mailer",
+    "onboarding",
+    "reports-legacy",
+    "runner-fleet",
+    "sso-legacy",
+    "stream-hub",
+    "trace-collector",
+    "usage-meter",
+    "warehouse",
+    "web-console"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "alert-router",
+     "billing-api",
+     "build-scheduler",
+     "docs-site",
+     "edge-gateway",
+     "flag-eval",
+     "identity",
+     "invoice-render",
+     "ledger",
+     "log-ingest",
+     "metrics-tsdb",
+     "notify-mailer",
+     "onboarding",
+     "reports-legacy",
+     "runner-fleet",
+     "sso-legacy",
+     "stream-hub",
+     "trace-collector",
+     "usage-meter",
+     "warehouse",
+     "web-console"
+    ],
+    "ms": 13387,
+    "answer": "Switching off secrets-vault today would stop 5 business-critical or important systems directly, and knock out or degrade about 17 more within two to three steps. The earlier simulation (u5) listed only 7 of these, so its picture was incomplete. Risk is scored 100 (high) and the change cannot be auto-approved.\nSystems that would stop working directly: identity, ledger, runner-fleet, sso-legacy and stream-hub.\nSystems that would stop working one step further out: alert-router, billing-api, build-scheduler, edge-gateway, web-console, invoice-render, onboarding and reports-legacy.\nSystems that would stop working three steps out: docs-site.\nSystems that would slow down or partly fail: flag-eval, log-ingest, metrics-tsdb, usage-meter, notify-mailer and trace-collector.\nwarehouse would keep running but on out-of-date data.\nCustomers who would notice: 16 in total, including enterprise customers Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility.\nTeams that must approve the change: Billing, Console, Data, Platform, Runtime and Signals.\nRisk score for switching off secrets-vault today is 100 (high), not auto-approved.\nIdentity is the one system that relies directly on secrets-vault in the records.",
+    "claims": [
+     {
+      "text": "Systems that would stop working directly: identity, ledger, runner-fleet, sso-legacy and stream-hub.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Systems that would stop working one step further out: alert-router, billing-api, build-scheduler, edge-gateway, web-console, invoice-render, onboarding and reports-legacy.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Systems that would stop working three steps out: docs-site.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Systems that would slow down or partly fail: flag-eval, log-ingest, metrics-tsdb, usage-meter, notify-mailer and trace-collector.",
+      "verdict": "verified"
+     },
+     {
+      "text": "warehouse would keep running but on out-of-date data.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Customers who would notice: 16 in total, including enterprise customers Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Teams that must approve the change: Billing, Console, Data, Platform, Runtime and Signals.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Risk score for switching off secrets-vault today is 100 (high), not auto-approved.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Identity is the one system that relies directly on secrets-vault in the records.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [],
+    "ms": 1918,
+    "answer": "The records do not say which systems depend on secrets-vault, so I cannot name any system that would stop working or degrade. They only show development activity: pull requests and tickets on secrets-vault by Yusuf Demir, Rafael Costa, Jonas Berg and Priya Raman (e.g., audit trail metrics, key rotation tests, seal/unseal runbook hooks, lease renewal cleanup), plus pairing sessions on secrets-vault between Rafael Costa and Jonas Berg (2025-12-09 and 2026-09-05) and between Jonas Berg and Yusuf Demir (2026-07-17). Checking the service dependency map or owners of consuming services would be needed to answer the question."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows reports-legacy? Name the people.",
+   "truth": [],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "Nobody currently counts as knowing reports-legacy.",
+    "ms": 9128,
+    "answer": "Nobody currently counts as knowing reports-legacy. Two Data team members, Marcus Bell and Arjun Mehta, have touched it recently but are not recorded as knowing it.\nNo one currently counts as knowing reports-legacy (zero knowledgeable people).\nMarcus Bell (Data) has made 2 changes or reviews to reports-legacy, last on 2026-06-09, but is not recorded as knowing it.\nArjun Mehta (Data) has made 1 change or review to reports-legacy, last on 2026-06-09, but is not recorded as knowing it.\nreports-legacy is declared as owned by the Data team in the service catalog, with no de facto owner and no one on call.",
+    "claims": [
+     {
+      "text": "No one currently counts as knowing reports-legacy (zero knowledgeable people).",
+      "verdict": "verified"
+     },
+     {
+      "text": "Marcus Bell (Data) has made 2 changes or reviews to reports-legacy, last on 2026-06-09, but is not recorded as knowing it.",
+      "verdict": "judged"
+     },
+     {
+      "text": "Arjun Mehta (Data) has made 1 change or review to reports-legacy, last on 2026-06-09, but is not recorded as knowing it.",
+      "verdict": "judged"
+     },
+     {
+      "text": "reports-legacy is declared as owned by the Data team in the service catalog, with no de facto owner and no one on call.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": "Marcus Bell is the person who clearly knows reports-legacy.",
+    "ms": 3038,
+    "answer": "Marcus Bell is the person who clearly knows reports-legacy. He authored nearly all of its recorded work, including the scheduler refactors, the SFTP delivery hardening and tests, the nightly CSV export fixes, and the edge-case handling shipped in #2968 on 2026-05-27. He also spotted the p99 latency creep on 2025-11-21 and asked the team to watch its dashboards. Wei also knows it: Marcus paired with Wei on reports-legacy on 2024-09-11, and the notes are in that ticket. Wei's last name isn't in the records. Sofia Rossi is not a knowledgeable person here: on 2026-08-30 she said she was investigating Pinecrest's empty nightly CSV (SUP-1077) but had never touched reports-legacy."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows invoice-render? Name the people.",
+   "truth": [
+    "Ines Okafor"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Ines Okafor"
+    ],
+    "ms": 6950,
+    "answer": "Only Ines Okafor (Billing) counts as knowing invoice-render. Four other Billing people have changed it but are not counted as knowing it.\nInes Okafor is the only person who knows invoice-render.\nAmara Nwosu, Tomasz Nowak, Ethan Brooks and Felipe Ortega have changed invoice-render but are not counted as knowing it.\nThe declared owner of invoice-render is the Billing team, per the service catalog.",
+    "claims": [
+     {
+      "text": "Ines Okafor is the only person who knows invoice-render.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Amara Nwosu, Tomasz Nowak, Ethan Brooks and Felipe Ortega have changed invoice-render but are not counted as knowing it.",
+      "verdict": "judged"
+     },
+     {
+      "text": "The declared owner of invoice-render is the Billing team, per the service catalog.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [
+     "Amara Nwosu",
+     "Ethan Brooks"
+    ],
+    "said": [
+     "Amara Nwosu",
+     "Ethan Brooks"
+    ],
+    "ms": 3269,
+    "answer": "The records don't identify a definitive expert, but the people most active in invoice-render work are Tomasz Nowak (commits on 2025-02-19, 2025-04-13 'fix batch rendering', and 2026-08-01 'add metrics to batch rendering'; also shipped #2151 in #billing on 2024-03-06 and was asked to watch dashboards), Ines Okafor (commits on 2026-02-27 'simplify batch rendering', 2026-08-29 'add metrics to batch rendering', and 2024-04-29 'add metrics to credit note template'; also asked the #billing question about who knows invoice-render internals on 2026-08-29), Julia Kowalczyk (2024-07-18 'clean up batch rendering'), and Daniel Osei (2024-08-24 'migrate batch rendering'). Amara Nwosu asked the same question in #billing on 2026-01-02 and shipped #2261 on 2024-07-02, and Ethan Brooks reported rolling out #2948 to invoice-render on 2026-05-15. The records do not say who holds the deepest knowledge, and the INC-311 postmortem by Rafael Costa shows that even the team's understanding of invoice-render's dependencies was incomplete: its dependency on sso-legacy was in no catalog."
+   }
+  },
+  {
+   "kind": "count",
+   "q": "How many systems would break or degrade if stream-hub were switched off?",
+   "truth": 15,
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     15
+    ],
+    "ms": 13516,
+    "answer": "Switching off stream-hub would break or degrade 15 systems, not the 6 in the earlier simulation. Risk is 100 (high), so it cannot be auto-approved. Sixteen customers would notice, and six teams must agree.\nSwitching off stream-hub would break or degrade 15 systems in total.\nThe earlier 'Switch off stream-hub' simulation listed only six systems (build-scheduler, flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector); the current check adds usage-meter, warehouse, alert-router, billing-api, edge-gateway, onboarding, reports-legacy, web-console and docs-site, which break further down the chain.\nRisk of switching off stream-hub is 100 (high) and it is not eligible for auto-approval.\nSixteen customers would notice, including five enterprise customers: Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility.\nSix teams must approve the switch-off: Billing, Console, Data, Platform, Runtime and Signals.\nBuild-scheduler is the one break that runs directly from stream-hub and is owned by Runtime; Leo Marchetti, Dmitri Volkov and Zara Ahmed know it.",
+    "claims": [
+     {
+      "text": "Switching off stream-hub would break or degrade 15 systems in total.",
+      "verdict": "verified"
+     },
+     {
+      "text": "The earlier 'Switch off stream-hub' simulation listed only six systems (build-scheduler, flag-eval, log-ingest, metrics-tsdb, notify-mailer, trace-collector); the current check adds usage-meter, warehouse, alert-router, billing-api, edge-gateway, onboarding, reports-legacy, web-console and docs-site, which break further down the chain.",
+      "verdict": "unsupported"
+     },
+     {
+      "text": "Risk of switching off stream-hub is 100 (high) and it is not eligible for auto-approval.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Sixteen customers would notice, including five enterprise customers: Helio Robotics, Mosaic Health, Northgate Retail, Pinecrest Bank and Vireo Mobility.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Six teams must approve the switch-off: Billing, Console, Data, Platform, Runtime and Signals.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Build-scheduler is the one break that runs directly from stream-hub and is owned by Runtime; Leo Marchetti, Dmitri Volkov and Zara Ahmed know it.",
+      "verdict": "partial"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     15
+    ],
+    "ms": 4868,
+    "answer": "15 systems would break or degrade if stream-hub were switched off, based on the Platform-maintained service catalog (2026-09-01). The direct dependents are flag-eval, usage-meter, build-scheduler, log-ingest, metrics-tsdb, trace-collector, notify-mailer and warehouse. Through those, the indirect dependents are edge-gateway (via flag-eval), billing-api (via usage-meter), web-console (via edge-gateway, billing-api, build-scheduler and metrics-tsdb), docs-site (via edge-gateway), onboarding (via billing-api and notify-mailer), alert-router (via metrics-tsdb and notify-mailer) and reports-legacy (via warehouse). The catalog lists dependencies but not how severely each one degrades, so the exact impact on each system would need confirming with its owner. Marcus Bell's 2024 note says reports-legacy's 02:00 UTC cron reads the warehouse, so it would be affected by an outage. The catalog does not say how this cron behaves when the warehouse is unavailable."
+   }
+  },
+  {
+   "kind": "depends",
+   "q": "Which systems does build-scheduler rely on, directly or indirectly?",
+   "truth": [
+    "artifact-store",
+    "cache-proxy",
+    "identity",
+    "runner-fleet",
+    "secrets-vault",
+    "stream-hub"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "artifact-store",
+     "cache-proxy",
+     "identity",
+     "runner-fleet",
+     "secrets-vault",
+     "stream-hub"
+    ],
+    "ms": 5992,
+    "answer": "build-scheduler relies on six systems: four directly (artifact-store, identity, runner-fleet, stream-hub) and two one step further out (cache-proxy, secrets-vault). Only stream-hub would merely degrade it; losing any of the other five would break it.\nbuild-scheduler relies on artifact-store directly, and losing it would break build-scheduler.\nbuild-scheduler relies on identity directly, and losing it would break build-scheduler.\nbuild-scheduler relies on runner-fleet directly, and losing it would break build-scheduler.\nbuild-scheduler relies on stream-hub directly, and losing it would only degrade build-scheduler.\nbuild-scheduler relies on cache-proxy two steps out, and losing it would break build-scheduler.\nbuild-scheduler relies on secrets-vault two steps out, and losing it would break build-scheduler.",
+    "claims": [
+     {
+      "text": "build-scheduler relies on artifact-store directly, and losing it would break build-scheduler.",
+      "verdict": "verified"
+     },
+     {
+      "text": "build-scheduler relies on identity directly, and losing it would break build-scheduler.",
+      "verdict": "verified"
+     },
+     {
+      "text": "build-scheduler relies on runner-fleet directly, and losing it would break build-scheduler.",
+      "verdict": "verified"
+     },
+     {
+      "text": "build-scheduler relies on stream-hub directly, and losing it would only degrade build-scheduler.",
+      "verdict": "partial"
+     },
+     {
+      "text": "build-scheduler relies on cache-proxy two steps out, and losing it would break build-scheduler.",
+      "verdict": "verified"
+     },
+     {
+      "text": "build-scheduler relies on secrets-vault two steps out, and losing it would break build-scheduler.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [],
+    "ms": 3106,
+    "answer": "The records don't state which systems build-scheduler depends on, directly or indirectly. They contain only commits to build-scheduler (matrix builds work by Leo Marchetti, Zara Ahmed and Dmitri Volkov, 2024-07 through 2026-09) and one #runtime post-merge note from Zara Ahmed (2025-01-20) saying PR #2427 touched build-scheduler and was rolled out to 10% first. No ADR, document, ticket or PR names build-scheduler as calling, consuming or depending on any other system. The ADRs mention systems such as the artifact store, usage-meter, stream-hub and the identity service, but none links them to build-scheduler. Confirming dependencies would require the service's configuration or architecture docs, or the owners named above."
+   }
+  },
+  {
+   "kind": "knows",
+   "q": "Who actually knows stream-hub? Name the people.",
+   "truth": [
+    "Wei Zhang"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "Wei Zhang"
+    ],
+    "ms": 6851,
+    "answer": "Only Wei Zhang formally knows stream-hub. Four other Data team members have touched it but are not counted as knowing it.\nWei Zhang is the only person who formally knows stream-hub.\nSofia Rossi, Arjun Mehta, Marcus Bell and Nadia Haddad have touched stream-hub but are not counted as knowing it.\nThe Data team is the declared owner of stream-hub, per the service catalog; no one is de facto owning it.",
+    "claims": [
+     {
+      "text": "Wei Zhang is the only person who formally knows stream-hub.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Sofia Rossi, Arjun Mehta, Marcus Bell and Nadia Haddad have touched stream-hub but are not counted as knowing it.",
+      "verdict": "judged"
+     },
+     {
+      "text": "The Data team is the declared owner of stream-hub, per the service catalog; no one is de facto owning it.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.3333333333333333,
+    "recall": 1.0,
+    "made_up": [
+     "Arjun Mehta",
+     "Sofia Rossi"
+    ],
+    "said": [
+     "Arjun Mehta",
+     "Sofia Rossi",
+     "Wei Zhang"
+    ],
+    "ms": 3204,
+    "answer": "The records show three people doing stream-hub work: Wei Zhang has the most (\"migrate JetStream consumers\" 2026-03-19, \"refactor JetStream consumers\" 2026-07-15, and \"fix cluster sizing\" on 2026-06-18 and 2026-08-03). Sofia Rossi worked on \"simplify subject mapping\" (2026-03-31) and \"clean up JetStream consumers\" (2026-05-27). Arjun Mehta wrote the ADR-008 decision and the migration plan, and announced the prod cluster was up on 2026-02-02. The records show who touched stream-hub and when, but not how deep anyone's knowledge goes. Wei Zhang is the strongest signal for ongoing hands-on work, and Arjun Mehta for the original design. The records also list a stream-hub open issue, \"wrong totals after retry\" (2026-05-26), with no owner named."
+   }
+  },
+  {
+   "kind": "depends",
+   "q": "Which systems does onboarding rely on, directly or indirectly?",
+   "truth": [
+    "billing-api",
+    "identity",
+    "invoice-render",
+    "ledger",
+    "notify-mailer",
+    "secrets-vault",
+    "sso-legacy",
+    "stream-hub",
+    "tax-engine",
+    "usage-meter"
+   ],
+   "orion": {
+    "correct": true,
+    "precision": 1.0,
+    "recall": 1.0,
+    "made_up": [],
+    "said": [
+     "billing-api",
+     "identity",
+     "invoice-render",
+     "ledger",
+     "notify-mailer",
+     "secrets-vault",
+     "sso-legacy",
+     "stream-hub",
+     "tax-engine",
+     "usage-meter"
+    ],
+    "ms": 6701,
+    "answer": "Onboarding relies on 10 systems, directly or through other systems. Six would break it (billing-api, identity, ledger, secrets-vault, tax-engine, usage-meter) and four would only degrade it (notify-mailer, invoice-render, stream-hub, sso-legacy).\nOnboarding relies on 10 systems in total, directly or indirectly.\nDirect reliances of onboarding are billing-api, identity and notify-mailer.\nLosing billing-api, identity, ledger, secrets-vault, tax-engine or usage-meter would break onboarding.\nLosing notify-mailer, invoice-render, stream-hub or sso-legacy would only degrade onboarding.\nNothing relies on onboarding in the records.",
+    "claims": [
+     {
+      "text": "Onboarding relies on 10 systems in total, directly or indirectly.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Direct reliances of onboarding are billing-api, identity and notify-mailer.",
+      "verdict": "verified"
+     },
+     {
+      "text": "Losing billing-api, identity, ledger, secrets-vault, tax-engine or usage-meter would break onboarding.",
+      "verdict": "unverified"
+     },
+     {
+      "text": "Losing notify-mailer, invoice-render, stream-hub or sso-legacy would only degrade onboarding.",
+      "verdict": "judged"
+     },
+     {
+      "text": "Nothing relies on onboarding in the records.",
+      "verdict": "verified"
+     }
+    ]
+   },
+   "baseline": {
+    "correct": false,
+    "precision": 0.0,
+    "recall": 0.0,
+    "made_up": [],
+    "said": [],
+    "ms": 3115,
+    "answer": "The records don't identify any systems that onboarding relies on, directly or indirectly. They only show onboarding work items: metrics in the repo connect step (Sam Okoro, Anika Patel), tests for trial sign-up (Theo Laurent), a first-build walkthrough doc (Anika Patel) and edge-case fixes (Isabel Vega, Chloe Dubois, Anika Patel, Theo Laurent). Isabel Vega is noted as the person who reviewed and rolled out #2320 to 10% first, and Theo Laurent asked for review of #2841, both touching onboarding. Liam O'Connor asked who knows onboarding internals, but no answer is recorded. For the systems question, check the onboarding repo's code, configuration or architecture docs, or ask Isabel Vega or Anika Patel, who have worked across several onboarding steps."
+   }
+  }
+ ],
+ "summary": {
+  "orion": {
+   "correct": 28,
+   "total": 29,
+   "accuracy": 97,
+   "precision": 100,
+   "recall": 100,
+   "made_up_answers": 1,
+   "made_up_names": 1,
+   "median_ms": 7348
+  },
+  "baseline": {
+   "correct": 8,
+   "total": 29,
+   "accuracy": 28,
+   "precision": 43,
+   "recall": 51,
+   "made_up_answers": 9,
+   "made_up_names": 15,
+   "median_ms": 3161
+  },
+  "by_kind": {
+   "breaks": {
+    "orion": {
+     "correct": 4,
+     "total": 5,
+     "accuracy": 80,
+     "precision": 99,
+     "recall": 100,
+     "made_up_answers": 1,
+     "made_up_names": 1,
+     "median_ms": 13360
+    },
+    "baseline": {
+     "correct": 1,
+     "total": 5,
+     "accuracy": 20,
+     "precision": 50,
+     "recall": 29,
+     "made_up_answers": 2,
+     "made_up_names": 2,
+     "median_ms": 4942
+    }
+   },
+   "count": {
+    "orion": {
+     "correct": 5,
+     "total": 5,
+     "accuracy": 100,
+     "precision": 0,
+     "recall": 0,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 10524
+    },
+    "baseline": {
+     "correct": 1,
+     "total": 5,
+     "accuracy": 20,
+     "precision": 0,
+     "recall": 0,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 3267
+    }
+   },
+   "decided": {
+    "orion": {
+     "correct": 6,
+     "total": 6,
+     "accuracy": 100,
+     "precision": 0,
+     "recall": 0,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 9094
+    },
+    "baseline": {
+     "correct": 6,
+     "total": 6,
+     "accuracy": 100,
+     "precision": 0,
+     "recall": 0,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 3161
+    }
+   },
+   "depends": {
+    "orion": {
+     "correct": 5,
+     "total": 5,
+     "accuracy": 100,
+     "precision": 100,
+     "recall": 100,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 5458
+    },
+    "baseline": {
+     "correct": 0,
+     "total": 5,
+     "accuracy": 0,
+     "precision": 53,
+     "recall": 13,
+     "made_up_answers": 1,
+     "made_up_names": 1,
+     "median_ms": 3106
+    }
+   },
+   "knows": {
+    "orion": {
+     "correct": 8,
+     "total": 8,
+     "accuracy": 100,
+     "precision": 100,
+     "recall": 100,
+     "made_up_answers": 0,
+     "made_up_names": 0,
+     "median_ms": 6950
+    },
+    "baseline": {
+     "correct": 0,
+     "total": 8,
+     "accuracy": 0,
+     "precision": 33,
+     "recall": 88,
+     "made_up_answers": 6,
+     "made_up_names": 12,
+     "median_ms": 3269
+    }
+   }
+  }
+ }
+}

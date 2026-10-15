@@ -482,6 +482,22 @@ def fork_scenario(ctx: ToolContext, ops: list[dict], title: str | None = None, k
             "structural": d["structural"], "worker": res.get("_worker"), "evidence": list(remap.values())}
 
 
+def safe_path(ctx: ToolContext, ops: list[dict]) -> dict:
+    """How to make a change without breaking anything: parallel companies are searched for the preparation (move
+    each system that relies on what is switched off onto a replacement, or switch it off too) that brings risk down."""
+    from orion import planner
+
+    r = planner.plan(ctx.db, ctx.tenant, ops)
+    eid = ctx.add_evidence(ctx.snap()["graph"], "adhoc", {"ops": ops}, [], [], None,
+                           f"safe path for {r['goal']}: {r['explored']} companies explored, risk {r['baseline']['risk']} -> "
+                           f"{r['best']['risk']}", rows={"steps": [s["label"] for s in r["steps"]], "curve": r["curve"]},
+                           text="beam search over GRAPH.COPY forks of today's company; each scored like a what-if")
+    return {"goal": r["goal"], "explored": r["explored"], "ms": r["ms"], "risk_before": r["baseline"]["risk"],
+            "risk_after": r["best"]["risk"], "still_breaks": r["best"]["broken"],
+            "steps": [{"step": i + 1, "do": s["label"], "why": s["why"]} for i, s in enumerate(r["steps"])],
+            "plan_ops": r["plan_ops"], "evidence": [eid]}
+
+
 def dry_run(ctx: ToolContext, ops: list[dict], title: str) -> dict:
     """Rehearse an action: the change is made in a forked universe, never the company. Nothing happens until the
     teams it names approve it."""
@@ -586,6 +602,11 @@ TOOLS: dict[str, dict] = {
                                                          "title": {"type": "string"}}, "required": ["ops"]},
              "description": "What-if: copy the whole company into a universe, apply the changes and diff it against now "
                             "(what breaks, customers who would notice, what nobody would know, who must approve, risk)."},
+    "safe_path": {"fn": safe_path,
+                  "schema": {"type": "object", "properties": {"ops": {"type": "array", "items": OP_SCHEMA}}, "required": ["ops"]},
+                  "description": "How to make a change safely: searches parallel companies for the preparation (moving the "
+                                 "systems that rely on what is switched off, in order) that brings risk to the lowest. "
+                                 "Use when asked how to do something safely or in what order."},
     "dry_run": {"fn": dry_run,
                 "schema": {"type": "object", "properties": {"ops": {"type": "array", "items": OP_SCHEMA},
                                                             "title": {"type": "string"}}, "required": ["ops", "title"]},

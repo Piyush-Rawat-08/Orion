@@ -22,6 +22,37 @@ Orion is entered in **all three tracks**.
 | **02 Agent Memory and Coordination** | One memory graph per person (turns, versioned beliefs, learned tool sequences). Agents coordinate on a shared board in its own graph: tasks claimed atomically, chained with `FOLLOWS`, released when a worker stops heartbeating. A change one agent applies re-checks the answers another gave. |
 | **03 Company Brain** | People, teams, systems, customers, tickets, decisions, chat and documents in one bi-temporal graph. Who owns what and who actually knows it, decisions traced to the messages behind them, blame on every fact, the company on any past date, and any public GitHub repository loaded the same way. |
 
+## What no one else will show you
+
+**The safe path.** A what-if says what a change breaks. Orion also says how to do it without breaking anything. Ask it
+to switch off sso-legacy and it searches parallel copies of the company: for every system that would stop working, it
+tries moving it onto a replacement (a system a decision names alongside it, or one others already moved to) or
+switching it off too when nothing relies on it. Each try is a full `GRAPH.COPY` of the company with the plan applied,
+scored like a what-if; a beam search keeps the safest few at each step. On Corvane it explores 16 companies in about a
+second and comes back with: move invoice-render onto identity, switch reports-legacy off too, then switch off
+sso-legacy. Risk 100 → 0. One click sends the plan to the teams it touches. The Navigator has it as a tool too
+(`safe_path`).
+
+**Hindsight: would Orion have caught it?** Every incident is replayed against the decision that led to it. INC-311
+(invoices stopped rendering for every customer) came 15 days after ADR-011 approved retiring sso-legacy. Orion rebuilds
+the company as it stood on 3 March 2026 and tests the decision twice: on what had been written down that day (risk 26,
+one supporting system) and on what was true (risk 100, five systems, all 16 customers). The difference is one
+dependency that had been true for 652 days and was written down 6 days after the outage, and Orion shows the message
+that finally recorded it. Then the safe path on that day: its first step is exactly the fix the company made months
+later (BILL-207).
+
+**Proof.** 29 questions generated from the graph, so each has an answer the records settle (who actually knows a
+system, what it relies on at any depth, what breaks and how many, whether a decision still holds). The same model
+answers them twice: as Orion, and reading the 15 most relevant records as a retrieval assistant would. Graded the same
+way: **Orion 97% correct (28/29), the same model reading the records 28% (8/29)**; Orion named someone or something
+wrong in 1 answer, the baseline in 9. Every question and both answers are on the Proof screen; rerun it with
+`uv run python -m orion.evals`.
+
+| | | |
+|---|---|---|
+| ![The safe path](docs/media/safepath.jpg) | ![Hindsight](docs/media/hindsight.jpg) | ![Proof](docs/media/proof.jpg) |
+| **The safe path.** Every company explored appears in the tree as it is scored; the winning branch lights up and the plan reads out with the risk falling step by step. | **Hindsight.** The decision, the incident, the day the missing fact was written down and the day the fix landed, then what the records said against what was true. | **Proof.** The head-to-head, by kind of question, with every question open to both answers. |
+
 ## The story it tells
 
 Corvane is a fictional developer-platform company: 40 people, six teams, 26 systems, 16 customers, two years of
@@ -73,6 +104,8 @@ Every screen is a query, a traversal or an algorithm over FalkorDB.
 | Names as people write them | Full-text indexes on `Alias` and `Source` |
 | Tools that can't write | Every read tool runs through `GRAPH.RO_QUERY` |
 | Atomic task claims between agents | One write query; writes to a graph are serialized |
+| The safe path | Beam search where every candidate plan is a `GRAPH.COPY` of the company (now, or on a past date) with the plan applied, scored by the same traversal and algorithms as a what-if |
+| Hindsight | Two epochs of the same past day, `true` and `known` (facts filtered on `recorded_at`), diffed on the decision's change; the blind spot is the facts on the breakage paths recorded after that day |
 | Which answers a change affects | `Claim.facts` (the facts it relied on) and `(:Claim)-[:READ]->(node)`: one traversal from what changed |
 
 **Graph data model:** [docs/graph-model.md](docs/graph-model.md).
@@ -131,7 +164,7 @@ uv run orion departures                                        # everyone ranked
 uv run orion approve u1 person:priya-raman                     # approve as Priya (Platform)
 uv run orion message "invoice-render no longer calls sso-legacy" --author person:tomasz-nowak
 uv run orion repo FalkorDB/falkordb-py                         # load a public repository (needs GITHUB_TOKEN)
-uv run pytest -q                                               # 57 tests, incl. the equivalence property test
+uv run pytest -q                                               # 62 tests, incl. the equivalence property test
 ```
 
 ### Codebases (any public GitHub repository)
@@ -169,6 +202,8 @@ wave its own through.
 | The storylines | Ghost dependency, backtest, bus factor, approvals, blocked merges, rebase, rejected universes (`tests/test_universe.py`) |
 | Claims | Exhaustive wording, partly checked sentences, unknown names, what-if claims, customers, orphans, approvers, decisions (`tests/test_claims.py`) |
 | The live loop | A change re-checks exactly the claims that relied on it; authority, review, hedging; memory per person; tokens; atomic task claims (`tests/test_live.py`) |
+| The safe path and hindsight | The plan for sso-legacy moves invoice-render onto identity first and ends at risk 0; INC-311's blind spot is the invoice-render dependency, written down by Tomasz six days after the outage (`tests/test_planner.py`) |
+| Answers against a baseline | 29 graph-generated questions, Orion against the same model reading the records (`orion/evals.py`, results in `orion/eval_results.json`) |
 | Codebases | Imports across Python, TypeScript, Go, Rust, C and Java; CODEOWNERS; module layout; co-changes (`tests/test_repo.py`, offline) |
 
 ## Data
@@ -202,8 +237,12 @@ backend/src/orion/
   blackboard.py   the agents' shared board: tasks, workers, heartbeats
   memory.py       per-person memory graphs
   departures.py   if they left tomorrow
+  planner.py      the safe path: beam search over parallel companies
+  hindsight.py    incidents replayed against the decision before them
+  evals.py        Orion against the same model reading the records
   github.py · repo.py    codebases: GitHub ingest, insights, sync
   api.py · security.py · mcp_server.py · cli.py · docgen.py
-web/              Next.js: ask, what-ifs, approvals, inbox, history, teams, activity, codebases
+web/              Next.js: ask, what-ifs (and the safe path), approvals, inbox, history, hindsight, proof, teams,
+                  activity, codebases
 docs/             graph model, queries, deploy
 ```

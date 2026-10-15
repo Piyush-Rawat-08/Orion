@@ -36,6 +36,8 @@ How to work:
   customers, communities, bottlenecks and influence for how people actually work.
 - For any "what happens if..." question, call fork with typed changes. It copies the whole company into a parallel
   universe, makes the change and compares. Report what breaks, which customers would notice, who has to agree and the risk.
+- For "how do we do this safely" or "in what order", call safe_path: it searches parallel companies for the
+  preparation that makes the change break nothing, and returns the steps in order with the risk before and after.
 - For anything you are asked to DO (open a ticket, hand a service to another team, change a dependency, switch
   something off), call dry_run. You never change the company yourself; the teams it names approve it.
 - Every tool result lists evidence ids (e1, e2...). Each claim cites the evidence ids that show it.
@@ -95,7 +97,7 @@ SUBMIT = {
 
 TOOLS = ["find_entities", "impact", "broken_dependencies", "who_knows", "ownership", "decision_history", "blame",
          "customer_timeline", "trace_path", "neighborhood", "bottlenecks", "influence", "communities", "bus_factor",
-         "contradictions", "checkout", "cypher_readonly", "next_page", "fork", "dry_run", "remember"]
+         "contradictions", "checkout", "cypher_readonly", "next_page", "fork", "safe_path", "dry_run", "remember"]
 
 PREFETCH = {"impact": ("Service", "service"), "who_knows": ("Service", "service"), "ownership": ("Service", "service"),
             "bus_factor": ("Service", "service"), "decision_history": (None, "entity"),

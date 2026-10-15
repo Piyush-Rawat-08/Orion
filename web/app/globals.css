@@ -838,3 +838,20 @@ input[type="range"].scrub::-moz-range-thumb {
     inset: 0 0 auto 0;
   }
 }
+
+/* an event that demands attention (the incident on the hindsight timeline): a ring that keeps rippling out */
+.pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--color-bad);
+  animation: pulse-ring 1.8s var(--ease-out-quint) infinite;
+}
+@keyframes pulse-ring {
+  from { transform: scale(0.8); opacity: 0.9; }
+  to { transform: scale(2.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring::after { animation: none; }
+}
