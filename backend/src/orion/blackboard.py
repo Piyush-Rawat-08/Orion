@@ -98,7 +98,9 @@ def claim(db: dbm.DB, t: str, agent: str, kinds: list[str], uid: str | None = No
 
 
 def complete(db: dbm.DB, t: str, uid: str, result: dict, summary: str, ok: bool = True) -> None:
-    g = _deck(db, t)
+    g = _existing_deck(db, t)
+    if not g:
+        return
     with dbm.tagged("board"):
         db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = $s, x.done_at = $now, x.result = $r
                    CREATE (x)-[:PRODUCED]->(:Finding {summary: $sum})""",
@@ -107,7 +109,9 @@ def complete(db: dbm.DB, t: str, uid: str, result: dict, summary: str, ok: bool 
 
 
 def fail(db: dbm.DB, t: str, uid: str, error: str) -> None:
-    g = _deck(db, t)
+    g = _existing_deck(db, t)
+    if not g:
+        return
     with dbm.tagged("board"):
         db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END,
                    x.error = $e""", {"u": uid, "e": error[:500], "max": MAX_ATTEMPTS})

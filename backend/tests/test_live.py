@@ -143,6 +143,7 @@ def test_a_worker_does_the_fork_and_the_poster_reads_the_result_off_the_board(db
     finally:
         stop.set()
         worker.join(5)
-    assert res["_worker"] == "simulator-test" and res["diff"]["risk"]["level"] == "high"
+    # any worker may take it (an API running next to the tests has its own simulators); the poster never ran it
+    assert res["_worker"] not in (None, "inline") and res["diff"]["risk"]["level"] == "high"
     done = db.ro(dbm.deck(tenant), "MATCH (x:Task {uid: $u}) RETURN x.status AS s", {"u": res["_task"]})
     assert done == [{"s": "done"}]
