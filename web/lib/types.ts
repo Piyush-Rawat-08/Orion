@@ -85,6 +85,8 @@ export interface Tenant {
   description?: string;
   clock: string;
   loaded: boolean;
+  /** this browser's own copy of the demo company */
+  personal?: boolean;
 }
 
 export interface Timeline {

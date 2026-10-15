@@ -4,7 +4,7 @@
 // the claim highlight shared with the canvas, the blame drawer, and the unread inbox count.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { get, setApiUser } from "@/lib/api";
+import { currentTenant, get, post, setApiUser, setTenantId, TENANT } from "@/lib/api";
 import { postStream } from "@/lib/sse";
 import type { AskResult, Claim, GraphUse, ClaimCheck, GEdge, GNode, LastSession, Notification, Person, SummaryCheck, Tenant, Verdict } from "@/lib/types";
 
@@ -76,6 +76,8 @@ interface Ctx {
   personName: (uid?: string | null) => string;
   tenant: Tenant | null;
   refreshTenant: () => void;
+  /** throw this browser's copy of Corvane away and start again on a fresh one */
+  startOver: () => void;
 
   turns: Turn[];
   asking: boolean;
@@ -214,6 +216,8 @@ function restoredTurns(last: LastSession, user: string): Turn[] {
   }));
 }
 
+const DEMO_KEY = "orion.demo";
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState(DEFAULT_USER);
   const [people, setPeople] = useState<Person[]>([]);
@@ -272,13 +276,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [awake]);
 
   const refreshTenant = useCallback(() => {
-    get<Tenant[]>("/api/tenants")
-      .then((ts) => setTenant(ts.find((t) => t.id === "corvane") ?? ts[0] ?? null))
+    const id = currentTenant();
+    get<Tenant[]>(`/api/tenants?mine=${encodeURIComponent(id)}`)
+      .then((ts) => setTenant(ts.find((t) => t.id === id) ?? ts[0] ?? null))
       .catch(() => setTenant(null));
   }, []);
+
+  // once the API is awake: this browser's own copy of Corvane, made on the first visit and kept, so what one visitor
+  // changes (a message posted, an answer gone stale, a plan sent) never spoils the story for the next
   useEffect(() => {
-    if (awake) refreshTenant();
+    if (!awake) return;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(DEMO_KEY);
+    } catch {
+      /* no storage: a new copy each visit */
+    }
+    const shared = () => {
+      setTenantId(TENANT);
+      refreshTenant();
+    };
+    if (process.env.NEXT_PUBLIC_SHARED_DEMO === "1") return shared();
+    (async () => {
+      const ts = await get<Tenant[]>(`/api/tenants${saved ? `?mine=${encodeURIComponent(saved)}` : ""}`);
+      const mine = saved ? ts.find((t) => t.id === saved && t.personal) : undefined;
+      if (mine) {
+        setTenantId(mine.id);
+        setTenant(mine);
+        return;
+      }
+      const made = await post<Tenant>("/api/demo", {});
+      try {
+        localStorage.setItem(DEMO_KEY, made.id);
+        localStorage.removeItem("orion.start"); // a fresh copy: the walkthrough starts again too
+      } catch {
+        /* ignore */
+      }
+      setTenantId(made.id);
+      setTenant(made);
+    })().catch(shared); // an older server, or no copy could be made: the shared company
   }, [awake, refreshTenant]);
+
+  const startOver = useCallback(() => {
+    const done = () => {
+      try {
+        localStorage.removeItem(DEMO_KEY);
+        localStorage.removeItem("orion.start");
+      } catch {
+        /* ignore */
+      }
+      window.location.assign("/");
+    };
+    if (tenant?.personal) post("/leave", {}).then(done, done);
+    else done();
+  }, [tenant]);
 
   const setUser = useCallback((u: string) => {
     setApiUser(u);
@@ -438,6 +489,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       personName,
       tenant,
       refreshTenant,
+      startOver,
       turns,
       asking,
       ask,
@@ -460,7 +512,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       awake,
       staleAnswers,
     }),
-    [user, setUser, people, personName, tenant, refreshTenant, turns, asking, ask, stop, clearChat, previous, resume, highlight, hoverHighlight, hoverEnd, pinHighlight, clearHighlight, blame, closeBlame, unread, refreshInbox, llm, restoring, awake, staleAnswers],
+    [user, setUser, people, personName, tenant, refreshTenant, startOver, turns, asking, ask, stop, clearChat, previous, resume, highlight, hoverHighlight, hoverEnd, pinHighlight, clearHighlight, blame, closeBlame, unread, refreshInbox, llm, restoring, awake, staleAnswers],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

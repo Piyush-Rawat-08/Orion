@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from orion import blackboard, llm, memory
+from orion import blackboard, demo, llm, memory
 from orion import db as dbm
 from orion import epoch as ep
 from orion import universe as uv
@@ -41,6 +41,30 @@ def tenant_ids(db: dbm.DB) -> list[str]:
     return [g.split(":", 1)[1] for g in db.graphs("org:")]
 
 
+_working: dict = {"at": 0.0, "ts": []}
+
+
+def working_tenants(db: dbm.DB) -> list[str]:
+    """The tenants workers and the janitor visit: every company, but only the visitors' copies in use lately (a
+    few dozen idle copies polled every second would keep a small host busy for nothing). Cached for five seconds."""
+    if time.time() - _working["at"] > 5:
+        active = set(demo.active(db))
+        _working["ts"] = [t for t in tenant_ids(db) if not demo.is_demo(t) or t in active]
+        _working["at"] = time.time()
+    return _working["ts"]
+
+
+_touched: dict[str, float] = {}
+
+
+def _touch(db: dbm.DB, t: str) -> None:
+    """A visitor's copy is in use: say so at most once a minute."""
+    if demo.is_demo(t) and time.time() - _touched.get(t, 0) > 60:
+        _touched[t] = time.time()
+        demo.touch(db, t)
+        _working["at"] = 0.0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db = get_db()
@@ -54,18 +78,24 @@ async def lifespan(app: FastAPI):
               for i in range(int(env("ORION_WORKERS") or 2))]
     agents += [("cartographer-1", "cartographer", ["extract"], []), ("sentinel-1", "sentinel", ["apply"], [])]
     for name, role, kinds, takes in agents:
-        threading.Thread(target=blackboard.agent_loop, args=(name, role, kinds, stop, lambda: tenant_ids(db), takes),
+        threading.Thread(target=blackboard.agent_loop, args=(name, role, kinds, stop, lambda: working_tenants(db), takes),
                          daemon=True).start()
 
     def janitor():
         poll = float(env("ORION_GITHUB_POLL_MIN") or 0) * 60
-        last = time.time()
+        last = cleaned = time.time()
         with dbm.tagged("board"):
             while not stop.wait(15):
                 try:
-                    ts = tenant_ids(db)
+                    ts = working_tenants(db)
                 except Exception:
                     continue
+                if time.time() - cleaned > 600:  # visitors' copies idle for hours, or past the cap
+                    cleaned = time.time()
+                    try:
+                        demo.gc(db)
+                    except Exception as e:
+                        print(f"janitor: demo gc: {type(e).__name__}: {e}", flush=True)
                 if poll and time.time() - last > poll:
                     last = time.time()
                     from orion.repo import sync
@@ -127,6 +157,7 @@ def needs_llm(request: Request, calls: int = 1) -> None:
 def known(tenant: str) -> str:
     if tenant not in TENANTS and not get_db().exists(dbm.org(tenant)):
         raise HTTPException(404, f"unknown tenant {tenant}")
+    _touch(get_db(), tenant)
     return tenant
 
 
@@ -170,10 +201,35 @@ def health() -> dict:
             "models": llm.info()}
 
 
+def _copy_of_corvane(db: dbm.DB, t: str) -> dict:
+    return TENANTS[DEMO] | {"id": t, "personal": True, "clock": dbm.clock(db, t), "loaded": True}
+
+
+@app.post("/api/demo")
+def new_demo(request: Request) -> dict:
+    """A copy of Corvane for one visitor, so what they change is theirs alone. Rate-limited per client."""
+    limit(request, bucket="demo")
+    db = get_db()
+    made = demo.create(db)
+    return _copy_of_corvane(db, made["tenant"]) | {"ms": made["ms"]}
+
+
+@app.post("/api/{tenant}/leave")
+def leave_demo(tenant: str, s: Session = Auth) -> dict:
+    """Throw this visitor's copy away (Start over makes a new one)."""
+    if not demo.is_demo(tenant):
+        raise HTTPException(400, "only a visitor's copy can be thrown away")
+    demo.remove(get_db(), tenant)
+    return {"ok": True}
+
+
 @app.get("/api/tenants")
-def tenants() -> list[dict]:
+def tenants(mine: str | None = None) -> list[dict]:
     db = get_db()
     out = [t | {"clock": dbm.clock(db, t["id"]), "loaded": db.exists(dbm.org(t["id"]))} for t in TENANTS.values()]
+    if mine and demo.is_demo(mine) and db.exists(dbm.org(mine)):
+        _touch(db, mine)
+        out.insert(0, _copy_of_corvane(db, mine))
     for t in tenant_ids(db):
         if t not in TENANTS and t.startswith("gh-"):
             row = db.one(dbm.org(t), "MATCH (c:Company) RETURN c.name AS name")

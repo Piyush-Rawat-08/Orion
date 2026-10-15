@@ -6,9 +6,23 @@
 // request, and logs in again once if a token is refused.
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8100").replace(/\/$/, "");
+/** The shared company. Visitors normally get a copy of their own (see AppProvider); this is the fallback. */
 export const TENANT = process.env.NEXT_PUBLIC_TENANT || "corvane";
 
-export const tenantPath = (path: string) => `/api/${TENANT}${path.startsWith("/") ? path : `/${path}`}`;
+// The tenant this browser works in, settled once at start: requests for it wait until it is known.
+let current = TENANT;
+let settle: (t: string) => void = () => {};
+const settled = new Promise<string>((r) => (settle = r));
+
+/** Point every tenant-scoped request at `t` from now on, and release the ones waiting. */
+export function setTenantId(t: string) {
+  current = t;
+  settle(t);
+}
+
+export const currentTenant = () => current;
+
+export const tenantPath = (path: string) => `/api/${current}${path.startsWith("/") ? path : `/${path}`}`;
 
 export class ApiError extends Error {
   constructor(
@@ -29,13 +43,13 @@ export function setApiUser(user: string) {
   currentUser = user;
 }
 
-const PUBLIC = new Set(["health", "tenants"]);
+const PUBLIC = new Set(["health", "tenants", "demo"]);
 
 function tenantOf(path: string): string | null {
-  if (!path.startsWith("/api/")) return TENANT;
+  if (!path.startsWith("/api/")) return current;
   const seg = path.slice(5).split(/[/?]/)[0];
   if (PUBLIC.has(seg)) return null;
-  if (seg === "repos") return TENANT; // creating a repo tenant: any logged-in session will do
+  if (seg === "repos") return current; // creating a repo tenant: any logged-in session will do
   return decodeURIComponent(seg);
 }
 
@@ -78,6 +92,7 @@ async function token(tenant: string, fresh = false, as?: string): Promise<string
 /** fetch with the caller's token; a refused token is replaced once. `as` sends one request as another persona
  *  (the demo's "post a message as someone on the team"): the server still only believes the token. */
 export async function authFetch(path: string, init: RequestInit = {}, as?: string): Promise<Response> {
+  if (!path.startsWith("/api/") || path.startsWith("/api/repos")) await settled;
   const url = path.startsWith("/api/") ? `${API_URL}${path}` : `${API_URL}${tenantPath(path)}`;
   const tenant = tenantOf(path);
   const go = async (fresh: boolean) => {

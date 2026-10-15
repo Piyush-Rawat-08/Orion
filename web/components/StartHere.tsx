@@ -59,7 +59,7 @@ function Ring({ done, total }: { done: number; total: number }) {
 
 export default function StartHere() {
   const path = usePathname();
-  const { turns, staleAnswers } = useApp();
+  const { turns, staleAnswers, tenant, startOver } = useApp();
   const reduce = useReducedMotion();
   const [s, setS] = useState<Saved | null>(null);
   useEffect(() => setS(load()), []);
@@ -243,6 +243,16 @@ export default function StartHere() {
                 <button type="button" className="text-faint underline-offset-2 hover:text-muted hover:underline" onClick={() => update((x) => ({ ...x, gone: true }))}>
                   Close
                 </button>
+              </p>
+            )}
+            {tenant?.personal && (
+              <p className="border-t border-rule-soft px-3.5 py-2 text-[11px] leading-relaxed text-faint">
+                This is your own copy of Corvane: nobody else sees what you change.{" "}
+                {done > 0 && (
+                  <button type="button" className="underline-offset-2 hover:text-muted hover:underline" onClick={startOver}>
+                    Start over
+                  </button>
+                )}
               </p>
             )}
           </motion.section>

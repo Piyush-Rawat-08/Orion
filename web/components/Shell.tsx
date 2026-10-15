@@ -146,7 +146,7 @@ function TabBar({ current, unread, onMore, moreOpen }: { current: string; unread
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const { tenant, unread, awake } = useApp();
+  const { tenant, unread, awake, startOver } = useApp();
   const stats = useFetch<Stats>("/stats", 10000);
   // the certificate belongs to Approvals
   const here = path.startsWith("/certificate") ? "/review" : path;
@@ -270,9 +270,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   style={{ background: waking ? "var(--color-warn)" : online ? "var(--color-ok)" : "var(--color-bad)" }}
                   aria-hidden
                 />
-                {waking ? "Waking up" : online ? "Live records" : "Can't connect"}
+                {waking ? "Waking up" : online ? (tenant?.personal ? "Your own copy" : "Live records") : "Can't connect"}
               </span>
             </span>
+            {tenant?.personal && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Start over on a fresh copy of Corvane? What you changed in this one is thrown away.")) startOver();
+                }}
+                className={`${W} shrink-0 rounded px-1.5 py-1 text-[11px] text-faint transition-colors hover:bg-raised hover:text-ink`}
+                title="Throw this copy away and start again on a fresh one"
+              >
+                Start over
+              </button>
+            )}
           </div>
         </div>
 
