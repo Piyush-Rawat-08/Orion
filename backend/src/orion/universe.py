@@ -137,6 +137,10 @@ def summary(u: dict) -> dict:
 def detail(db: dbm.DB, t: str, uid: str) -> dict:
     """One universe: the record, its changes by name, the diff and who has approved."""
     u = get_universe(db, t, uid)
+    if u["status"] == "merged" and u.get("decision") and "opened_facts" not in u:
+        for key, prop in (("opened_facts", "src"), ("closed_facts", "closed_by")):
+            u[key] = [r["uid"] for r in db.ro(dbm.org(t), f"MATCH ()-[r]->() WHERE r.{prop} = $d RETURN r.uid AS uid ORDER BY uid",
+                                              {"d": u["decision"]})]
     return {**summary(u), "diff": json.loads(u["diff_json"]) if u.get("diff_json") else None,
             **approval_state(db, t, uid, u), "browser": f"http://localhost:3000/?graph={u['graph']}"}
 
@@ -631,9 +635,12 @@ def _merge(db: dbm.DB, t: str, u: dict, d: dict, by: str, note: str, force: bool
         log.append({"op": op["op"], "closed": got})
         db.q(deck(db, t), "MATCH (u:Universe {uid: $u}) SET u.merge_done = $i", {"u": uid, "i": i + 1})
     v = dbm.bump(db, t)
+    opened = [r["uid"] for r in db.ro(g, "MATCH ()-[r]->() WHERE r.src = $dec RETURN r.uid AS uid ORDER BY uid", {"dec": dec})]
+    all_closed = [r["uid"] for r in db.ro(g, "MATCH ()-[r]->() WHERE r.closed_by = $dec RETURN r.uid AS uid ORDER BY uid",
+                                          {"dec": dec})]
     db.q(deck(db, t), """MATCH (u:Universe {uid: $u}) SET u.status = 'merged', u.merged_at = $now, u.merged_by = $by,
-                         u.forced = $f, u.decision = $dec""",
-         {"u": uid, "now": now, "by": by, "f": force and bool(d["broken"]), "dec": dec})
+                         u.forced = $f, u.decision = $dec, u.opened_facts = $o, u.closed_facts = $c""",
+         {"u": uid, "now": now, "by": by, "f": force and bool(d["broken"]), "dec": dec, "o": opened, "c": all_closed})
     db.delete(u["graph"])
     from orion.agents import sentinel
 

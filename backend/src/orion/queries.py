@@ -159,8 +159,10 @@ OPTIONAL MATCH (src)-[:POSTED_BY|WRITTEN_BY]->(p:Person)
 OPTIONAL MATCH (dec:Decision {uid: r.src})
 RETURN r.uid AS fact, type(r) AS type, a.name AS subject, b.name AS object, r.valid_from AS valid_from,
        CASE WHEN r.valid_to = '9999-12-31' THEN null ELSE r.valid_to END AS valid_to, r.recorded_at AS recorded_at,
-       r.src AS source_uid, coalesce(labels(src)[1], CASE WHEN dec IS NULL THEN null ELSE 'Decision' END) AS kind,
-       coalesce(src.title, src.channel, dec.title) AS title, null AS url, coalesce(src.at, dec.at) AS at,
+       r.src AS source_uid,
+       CASE WHEN src:Ticket THEN 'ticket' WHEN src IS NOT NULL THEN src.kind
+            WHEN dec IS NULL THEN null WHEN dec.universe IS NOT NULL THEN 'merge' ELSE 'adr' END AS kind,
+       coalesce(src.title, src.channel, dec.key + ': ' + dec.title) AS title, src.url AS url, coalesce(src.at, dec.at) AS at,
        coalesce(src.text, dec.summary) AS text, p.name AS author, r.quote AS quote, r.declared AS declared""",
 
     "search_sources": """CALL db.idx.fulltext.queryNodes('Source', $text) YIELD node, score
