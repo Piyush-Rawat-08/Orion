@@ -199,7 +199,7 @@ RETURN CASE WHEN reduce(s = 0.0, t IN terms | s + t.points) > 100 THEN 100
     "claim_task": """MATCH (x:Task) WHERE x.kind IN $kinds AND x.status = 'open' AND x.attempts < $max
 WITH x ORDER BY x.created_at LIMIT 1
 SET x.status = 'claimed', x.claimed_by = $agent, x.claimed_at = $now, x.attempts = x.attempts + 1
-RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload""",
+RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload, x.attempts AS lease""",
 
     # ------------------------------------------------------------ repo mode
     "repo_hidden_coupling": """MATCH (a:Service)-[r:CO_CHANGES]-(b:Service)

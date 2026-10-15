@@ -89,7 +89,7 @@ def claim(db: dbm.DB, t: str, agent: str, kinds: list[str], uid: str | None = No
         if uid:
             rows = db.q(g, """MATCH (x:Task {uid: $u}) WHERE x.status = 'open'
                               SET x.status = 'claimed', x.claimed_by = $a, x.claimed_at = $now, x.attempts = x.attempts + 1
-                              RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload""",
+                              RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload, x.attempts AS lease""",
                         {"u": uid, "a": agent, "now": now_ms()})
         else:
             rows = db.q(g, cypher("claim_task"), {"kinds": kinds, "agent": agent, "now": now_ms(), "max": MAX_ATTEMPTS})
@@ -99,24 +99,62 @@ def claim(db: dbm.DB, t: str, agent: str, kinds: list[str], uid: str | None = No
     return r | {"payload": json.loads(r["payload"])}
 
 
-def complete(db: dbm.DB, t: str, uid: str, result: dict, summary: str, ok: bool = True) -> None:
-    g = _existing_deck(db, t)
-    if not g:
-        return
-    with dbm.tagged("board"):
-        db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = $s, x.done_at = $now, x.result = $r
-                   CREATE (x)-[:PRODUCED]->(:Finding {summary: $sum})""",
-             {"u": uid, "s": "done" if ok else "failed", "now": now_ms(), "r": json.dumps(result, default=str)[:20000],
-              "sum": summary})
+# a worker that claimed a task holds a lease on it: the attempt number it claimed. A task released from a worker
+# that went silent and claimed again has a new lease, so the first worker, if it was only slow, can't overwrite it.
+LEASED = " AND x.status = 'claimed' AND x.claimed_by = $agent AND x.attempts = $lease"
 
 
-def fail(db: dbm.DB, t: str, uid: str, error: str) -> None:
+def complete(db: dbm.DB, t: str, uid: str, result: dict, summary: str, ok: bool = True,
+             agent: str | None = None, lease: int | None = None) -> bool:
+    """Record the result; with a lease, only if it is still this worker's. True when it was recorded."""
     g = _existing_deck(db, t)
     if not g:
-        return
+        return False
     with dbm.tagged("board"):
-        db.q(g, """MATCH (x:Task {uid: $u}) SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END,
-                   x.error = $e""", {"u": uid, "e": error[:500], "max": MAX_ATTEMPTS})
+        rows = db.q(g, f"""MATCH (x:Task {{uid: $u}}) WHERE true{LEASED if lease is not None else ""}
+                           SET x.status = $s, x.done_at = $now, x.result = $r
+                           CREATE (x)-[:PRODUCED]->(:Finding {{summary: $sum}}) RETURN x.uid AS uid""",
+                    {"u": uid, "s": "done" if ok else "failed", "now": now_ms(), "r": json.dumps(result, default=str)[:20000],
+                     "sum": summary, "agent": agent, "lease": lease})
+    return bool(rows)
+
+
+def fail(db: dbm.DB, t: str, uid: str, error: str, agent: str | None = None, lease: int | None = None) -> bool:
+    g = _existing_deck(db, t)
+    if not g:
+        return False
+    with dbm.tagged("board"):
+        rows = db.q(g, f"""MATCH (x:Task {{uid: $u}}) WHERE true{LEASED if lease is not None else ""}
+                           SET x.status = CASE WHEN x.attempts >= $max THEN 'dead' ELSE 'open' END, x.error = $e
+                           RETURN x.uid AS uid""",
+                    {"u": uid, "e": error[:500], "max": MAX_ATTEMPTS, "agent": agent, "lease": lease})
+    return bool(rows)
+
+
+class beating:
+    """Heartbeat from a thread of its own while a task runs, so a worker busy for minutes is never taken for dead."""
+
+    def __init__(self, db: dbm.DB, name: str, every: float | None = None):
+        self.db, self.name, self.every = db, name, every or HEARTBEAT_S
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self.stop.wait(self.every):
+            try:
+                heartbeat(self.db, self.name, "working")
+            except Exception:
+                pass
+
+    def __enter__(self):
+        heartbeat(self.db, self.name, "working")
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop.set()
+        self.thread.join(timeout=2)
+        return False
 
 
 # ---------------------------------------------------------------- execution
@@ -149,16 +187,17 @@ def _simulate(db: dbm.DB, t: str, task: str, payload: dict, agent: str) -> tuple
 
 
 def run_task(db: dbm.DB, t: str, task: dict, agent: str) -> dict:
-    with dbm.tagged(f"task:{task['uid']}"):
+    lease = task.get("lease")
+    with dbm.tagged(f"task:{task['uid']}"), beating(db, agent):
         try:
             res, summary = EXECUTORS[task["kind"]](db, t, task["uid"], task["payload"], agent)
         except Exception as e:
-            fail(db, t, task["uid"], f"{type(e).__name__}: {e}")
+            fail(db, t, task["uid"], f"{type(e).__name__}: {e}", agent, lease)
             raise
-    complete(db, t, task["uid"], {k: res.get(k) for k in ("uid", "title", "risk", "risk_level", "assumptions", "scenario",
-                                                       "fork_ms", "copy_ms")},
-             summary)
-    return res | {"_worker": agent, "_task": task["uid"]}
+    kept = complete(db, t, task["uid"], {k: res.get(k) for k in ("uid", "title", "risk", "risk_level", "assumptions",
+                                                                 "scenario", "fork_ms", "copy_ms")},
+                    summary, agent=agent, lease=lease)
+    return res | {"_worker": agent, "_task": task["uid"], "_stale": not kept}
 
 
 def live_workers(db: dbm.DB, t: str | None = None, role: str = "simulator") -> int:
@@ -230,7 +269,6 @@ def agent_loop(name: str, role: str, kinds: list[str], stop: threading.Event, te
             if not task:
                 continue
             did = True
-            heartbeat(db, name, "working")
             try:
                 run_task(db, t, task, name)  # done or failed is written on the board, where the poster reads it
             except Exception:
