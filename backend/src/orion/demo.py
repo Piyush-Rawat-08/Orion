@@ -180,6 +180,11 @@ def create(db: dbm.DB, key: str | None = None) -> dict:
             touch(db, t)
             return {"tenant": t, "graphs": [], "ms": 0, "again": True}
         gc(db, keep=MAX - 1)
+        # copies with no record of a visitor: left half made by a restart. Nothing is being copied while we hold
+        # the lock, so they can go
+        known = set(seen(db))
+        for t in {g.split(":")[1] for g in db.graphs() if ":" in g and is_demo(g.split(":")[1])} - known:
+            remove(db, t)
         make_room(db)
         t = PREFIX + secrets.token_hex(4)
         out = clone(db, TEMPLATE, t)
