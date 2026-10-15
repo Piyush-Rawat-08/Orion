@@ -116,6 +116,16 @@ SERVICES = [
     ("reports-legacy", "data", 3, "Python", START, None, "Nightly CSV reports some enterprise customers still download."),
 ]
 
+# what people call things in chat
+NICKNAMES = {
+    "sso-legacy": ["old sso", "legacy sso", "saml"], "identity": ["oidc", "new sso", "idp"],
+    "event-bus": ["kafka"], "stream-hub": ["nats", "jetstream"], "invoice-render": ["invoices", "invoice pdfs"],
+    "metrics-tsdb": ["tsdb"], "alert-router": ["alerting", "pager"], "web-console": ["the console", "dashboard"],
+    "runner-fleet": ["runners"], "artifact-store": ["artifacts"], "edge-gateway": ["gateway", "the edge"],
+    "secrets-vault": ["vault", "secrets"], "flag-eval": ["feature flags"], "reports-legacy": ["nightly reports",
+                                                                                            "csv reports"],
+}
+
 BUS_SWITCH = "2026-05-12"  # event-bus -> stream-hub cut-over
 GHOST_RECORDED = "2026-03-24T16:41"
 

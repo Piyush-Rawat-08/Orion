@@ -145,6 +145,11 @@ def alias_pairs(w: World) -> list[tuple[str, str, str]]:
         for n in rows:
             for a in aliases_for(kind, n):
                 pairs.append((a, n["uid"], kind))
+    from orion.world.corvane import NICKNAMES, sid
+
+    for svc, names in NICKNAMES.items():
+        for a in names:
+            pairs.append((a, sid(svc), "Service"))
     # first names shared by two people would be ambiguous: drop them from the person aliases
     by_text: dict[str, set[str]] = {}
     for t, u, _ in pairs:
