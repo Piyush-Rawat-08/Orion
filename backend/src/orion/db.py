@@ -60,7 +60,9 @@ def plain(v: Any) -> Any:
 
 class DB:
     def __init__(self, host: str | None = None, port: int | None = None):
-        self.client = FalkorDB(host=host or config.FALKORDB_HOST, port=port or config.FALKORDB_PORT)
+        self.client = FalkorDB(host=host or config.FALKORDB_HOST, port=port or config.FALKORDB_PORT,
+                               username=config.FALKORDB_USERNAME, password=config.FALKORDB_PASSWORD,
+                               ssl=config.FALKORDB_SSL)
         self.redis = self.client.connection
 
     def graph(self, name: str):

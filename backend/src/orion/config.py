@@ -29,3 +29,7 @@ def env(name: str, default: str | None = None) -> str | None:
 
 FALKORDB_HOST = env("FALKORDB_HOST", "127.0.0.1")
 FALKORDB_PORT = int(env("FALKORDB_PORT", "6379"))
+# FalkorDB Cloud: a username and password, and TLS
+FALKORDB_USERNAME = env("FALKORDB_USERNAME")
+FALKORDB_PASSWORD = env("FALKORDB_PASSWORD")
+FALKORDB_SSL = (env("FALKORDB_SSL", "false") or "").lower() in ("1", "true", "yes")

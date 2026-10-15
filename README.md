@@ -112,6 +112,9 @@ cp .env.example .env.local
 pnpm install && pnpm dev --port 3001         # open http://localhost:3001
 ```
 
+Or everything in Docker: `docker compose --profile full up -d --build` (web on :3001). Deploying to Vercel, Railway
+and FalkorDB Cloud: [docs/deploy.md](docs/deploy.md).
+
 Pick a person to sign in as; there are no passwords in the demo, but the server signs a token for that person and
 takes the author of every action from it. Switch people from the top-right menu to approve as another team.
 
