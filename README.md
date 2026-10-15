@@ -31,8 +31,8 @@ Orion is entered in **all three tracks**.
 to switch off sso-legacy and it searches parallel copies of the company: for every system that would stop working, it
 tries moving it onto a replacement (a system a decision names alongside it, or one others already moved to) or
 switching it off too when nothing relies on it. Each try is a full `GRAPH.COPY` of the company with the plan applied,
-scored like a what-if; a beam search keeps the safest few at each step. On Corvane it explores 16 companies in about a
-second and comes back with: move invoice-render onto identity, switch reports-legacy off too, then switch off
+scored like a what-if; a beam search keeps the safest few at each step. On Corvane it explores 16 companies (about a
+second on a local FalkorDB, about ten on the free cloud instance, where copies take turns) and comes back with: move invoice-render onto identity, switch reports-legacy off too, then switch off
 sso-legacy. Risk 100 → 0. One click sends the plan to the teams it touches. The Navigator has it as a tool too
 (`safe_path`).
 
