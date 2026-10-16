@@ -45,6 +45,7 @@ import {
   tally,
 } from "@/lib/rehearsal";
 import Futures, { type Future } from "./Futures";
+import Intro from "./Intro";
 import StageMap from "./StageMap";
 
 type Scene = "intro" | "change" | "cascade" | "futures" | "evidence" | "finale";
@@ -226,12 +227,12 @@ export default function Stage() {
     if (awake || replay) void load();
   }, [awake, replay, load]);
 
-  // the introduction's background map, from the recorded run until this copy's own map arrives (same layout)
-  const [backdrop, setBackdrop] = useState<CompanyMap | null>(null);
+  // the recorded run the introduction's preview plays
+  const [preview, setPreview] = useState<Recording | null>(null);
   useEffect(() => {
     fetch("/rehearsal-replay.json", { cache: "force-cache" })
       .then((r) => r.json())
-      .then((rec: Recording) => setBackdrop(buildMap(rec.graph)))
+      .then((rec: Recording) => setPreview(rec))
       .catch(() => {});
   }, []);
 
@@ -498,89 +499,17 @@ export default function Stage() {
 
       <AnimatePresence mode="wait">
         {scene === "intro" ? (
-          <motion.section
+          <Intro
             key="intro"
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="relative flex flex-1 items-center overflow-hidden"
-            aria-label="Orion"
-          >
-            {/* the working map, faint, behind the introduction: the first click goes straight into it */}
-            <div className="pointer-events-none absolute inset-y-0 right-[1%] hidden w-[50%] translate-y-8 items-center opacity-35 md:flex" aria-hidden>
-              {(map ?? backdrop) && <StageMap map={(map ?? backdrop)!} state={CALM} label="Corvane's map" />}
-            </div>
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,var(--color-night)_40%,transparent_75%)]" aria-hidden />
-            <div className="relative mx-auto w-full max-w-[1480px] px-5 py-16 md:px-10">
-              <motion.h1
-                initial={reduce ? false : { opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, ease: EASE }}
-                className="heading text-[clamp(2.9rem,6.6vw,6.25rem)] leading-[0.96] tracking-[-0.045em]"
-              >
-                <span className="block">Break your company.</span>
-                <span className="block text-muted">In a parallel universe.</span>
-              </motion.h1>
-              <motion.p
-                initial={reduce ? false : { opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, ease: EASE, delay: 0.15 }}
-                className="mt-7 max-w-[46ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.5] text-muted"
-              >
-                Rehearse a system change, see what breaks, and find a better sequence, before anything changes in production.
-              </motion.p>
-              <motion.div
-                initial={reduce ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, ease: EASE, delay: 0.28 }}
-                className="mt-9 flex flex-wrap items-center gap-3"
-              >
-                <button
-                  type="button"
-                  onClick={() => go("change")}
-                  disabled={!map && !replay}
-                  className="btn btn-primary h-12 gap-2.5 rounded-full pl-2.5 pr-5 text-[16px]"
-                >
-                  <span className="grid size-8 place-items-center rounded-full bg-night/15" aria-hidden>
-                    {map || replay ? (
-                      <svg width="12" height="12" viewBox="0 0 12 12">
-                        <path d="M3.5 2.2v7.6L10 6 3.5 2.2Z" fill="currentColor" />
-                      </svg>
-                    ) : (
-                      <Spinner size={12} />
-                    )}
-                  </span>
-                  Rehearse a shutdown
-                </button>
-                <Link href="/" onClick={seen} className="btn h-12 rounded-full px-5 text-[16px]">
-                  Explore the workspace
-                </Link>
-              </motion.div>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-8 space-y-1.5 text-[14px] text-muted">
-                <p>
-                  <span className="text-ink">Corvane is made up.</span> Its people, systems and customers are synthetic, so you can break it freely.
-                  You get a copy of your own.
-                </p>
-                {!awake && !replay ? (
-                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="flex items-center gap-2">
-                      <span className="relative flex size-[7px]" aria-hidden>
-                        <span className="absolute inset-0 animate-ping rounded-full bg-warn opacity-70" />
-                        <span className="absolute inset-0 rounded-full bg-warn" />
-                      </span>
-                      Waking the free API server, about a minute <span className="tnum text-faint">{waited}s</span>
-                    </span>
-                    {waited > 6 && (
-                      <button type="button" onClick={() => void playRecording()} className="text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink">
-                        Watch a recorded run meanwhile
-                      </button>
-                    )}
-                  </p>
-                ) : (
-                  <p>About two minutes. Each step runs live on FalkorDB, on a real copy of the company graph.</p>
-                )}
-              </motion.div>
-            </div>
-          </motion.section>
+            preview={preview}
+            ready={!!map || !!replay}
+            awake={awake}
+            replay={!!replay}
+            waited={waited}
+            onStart={() => go("change")}
+            onReplay={() => void playRecording()}
+            seen={seen}
+          />
         ) : scene === "finale" ? (
           <Finale
             key="finale"
