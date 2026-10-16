@@ -314,9 +314,12 @@ export default function Stage() {
   const deliver = async () => {
     setNews((n) => ({ ...n, started: true }));
     setError(null);
+    // the decision is rehearsed again the moment the change is recorded, while Orion is still re-checking answers
+    let again: Promise<Forked> | null = null;
     try {
       await run.stream("news", (e) => {
         const d = e.data;
+        if (e.event === "recorded" && !again) again = run.fork("after");
         if (e.event === "extracted") setNews((n) => ({ ...n, received: true, reader: d.reader ? String(d.reader) : undefined }));
         else if (e.event === "status") setNews((n) => ({ ...n, received: true }));
         else if (e.event === "fact_closed")
@@ -327,7 +330,7 @@ export default function Stage() {
           setNews((n) => ({ ...n, expired: { broken: (d.broken_claims as string[])?.length ?? 0, total: Number(d.total_claims ?? 0) } }));
         else if (e.event === "error") setError(String(d.text));
       });
-      const [f, a] = await Promise.all([run.fork("after"), run.answer("after")]);
+      const [f, a] = await Promise.all([again ?? run.fork("after"), run.answer("after")]);
       setAfter(f);
       setAnswer((x) => ({ ...x, after: a }));
       setNews((n) => ({ ...n, done: true }));
