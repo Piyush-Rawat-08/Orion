@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 import time
 from datetime import date as _date
 from datetime import timedelta
@@ -450,8 +451,31 @@ def score_risk(broken: list, orphans: list, top_before: list, top_after: list, s
             "uncapped": round(total, 1)}
 
 
+_REPLAYED: dict[tuple, dict] = {}
+_REPLAY_LOCKS: dict[tuple, threading.Lock] = {}
+_REPLAY_GUARD = threading.Lock()
+
+
 def replay(db: dbm.DB, t: str, ops: list[dict], asof: str | None = None) -> dict:
-    """What the same ops break on today's company (or the company on `asof`), on a throwaway copy."""
+    """What the same ops break on today's company (or the company on `asof`), on a throwaway copy. Every point of
+    an answer about one what-if replays the same change on the same company; the first does the work and the rest
+    (running alongside it, or after) get its result. The company's version is in the key, so any write starts over."""
+    key = (t, asof, dbm.version(db, t), json.dumps(ops, sort_keys=True))
+    with _REPLAY_GUARD:
+        lock = _REPLAY_LOCKS.setdefault(key, threading.Lock())
+    with lock:
+        hit = _REPLAYED.get(key)
+        if hit is None:
+            hit = _replay(db, t, ops, asof)
+            with _REPLAY_GUARD:
+                if len(_REPLAYED) >= 64:
+                    _REPLAYED.clear()
+                    _REPLAY_LOCKS.clear()
+                _REPLAYED[key] = hit
+    return {"broken": dict(hit["broken"]), "graph": hit["graph"]}
+
+
+def _replay(db: dbm.DB, t: str, ops: list[dict], asof: str | None) -> dict:
     base = ep.checkout(db, t, asof, "known" if asof else "true")
     scratch = f"scratch:{t}:{secrets.token_hex(4)}"
     db.copy(base["graph"], scratch)

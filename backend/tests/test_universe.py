@@ -111,3 +111,17 @@ def test_an_owner_change_that_leaves_the_blast_radius_alone_still_needs_the_new_
     out = uv.approve(db, tenant, rec["uid"], PRIYA)
     assert out["status"] == "rebase_needed" and "approvers" in out["what_changed"]
     assert "Billing" in out["approvers"]["after"] and out["risk"]["before"] == out["risk"]["after"]
+
+
+def test_the_points_of_one_answer_share_one_replay_until_the_company_changes(db, tenant, monkeypatch):
+    from orion import db as dbm
+
+    copies = []
+    real = db.copy
+    monkeypatch.setattr(db, "copy", lambda a, b: (copies.append(b), real(a, b))[1])
+    ops = [{"op": "deprecate_service", "service": "sso-legacy"}]
+    first = uv.replay(db, tenant, ops)
+    again = uv.replay(db, tenant, ops)
+    assert again == first and len([c for c in copies if c.startswith("scratch:")]) == 1
+    dbm.bump(db, tenant)
+    assert uv.replay(db, tenant, ops) == first and len([c for c in copies if c.startswith("scratch:")]) == 2
