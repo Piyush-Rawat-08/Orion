@@ -8,6 +8,7 @@ decides what each does.
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
 import secrets
@@ -52,7 +53,7 @@ LABELS = {"DEPENDS_ON": ("Service", "Service"), "OWNS": ("Team", "Service"), "ME
 
 
 EXTRACT_DEADLINE_S = float(os.environ.get("ORION_EXTRACT_DEADLINE", "6"))
-_late = ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract")
+_late = ThreadPoolExecutor(max_workers=4, thread_name_prefix="extract")
 
 
 def extract(text: str, services: list[str], teams: list[str]) -> dict:
@@ -122,10 +123,11 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
     from orion import epoch as ep
 
     lap("task claimed")
-    now_g = ep.now(db, t)
-    services = [r["n"] for r in db.ro(now_g, "MATCH (s:Service) RETURN s.name AS n")]
-    teams = [r["n"] for r in db.ro(now_g, "MATCH (x:Team) RETURN x.name AS n")]
-    lap("today's company checked out")
+    # the message ticked the clock, so today's company is rebuilt; that runs while the model reads (the names it is
+    # given come from the records, where a few retired systems are harmless)
+    today = _late.submit(contextvars.copy_context().run, ep.now, db, t)
+    services = [r["n"] for r in db.ro(g, "MATCH (s:Service) RETURN DISTINCT s.name AS n")]
+    teams = [r["n"] for r in db.ro(g, "MATCH (x:Team) RETURN DISTINCT x.name AS n")]
     with dbm.tagged(f"task:{task}"):
         try:
             raw = extract(text, services, teams)
@@ -133,6 +135,8 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
         except Exception as e:
             blackboard.fail(db, t, task, str(e))
             raise
+    now_g = today.result()
+    lap("today's company checked out")
     changes, skipped = [], []
     for c in raw.get("changes", []):
         la, lb = LABELS[c["relation"]]
