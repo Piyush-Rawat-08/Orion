@@ -114,8 +114,9 @@ export function buildMap(g: GraphPayload, root: string = GOAL.service, successor
   const cols: string[][] = [];
   for (const [id, d] of dist) (cols[d] ??= []).push(id);
   const last = cols.length - 1;
-  const x0 = 96;
-  const x1 = 760;
+  // the first column's labels sit to its left, so the lines leaving it never cross them
+  const x0 = 210;
+  const x1 = 770;
   const colX = (c: number) => x0 + (last ? (c * (x1 - x0)) / last : 0);
   const top = 70;
   const bottom = MAP_H - 70;
@@ -146,7 +147,7 @@ export function buildMap(g: GraphPayload, root: string = GOAL.service, successor
   const customers = [...uses]
     .map(([uid, u]) => ({ uid, name: byId.get(uid)?.name ?? bare(uid), uses: u }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { nodes, edges, customers, cust: { x: 912, y: (top + bottom) / 2 - 20 }, W: MAP_W, H: MAP_H };
+  return { nodes, edges, customers, cust: { x: 905, y: (top + bottom) / 2 - 20 }, W: MAP_W, H: MAP_H };
 }
 
 /** What one company state looks like on the map. */
@@ -210,6 +211,21 @@ export function tally(effects: Record<string, string>) {
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** "2 systems stop, 3 slow down" / "1 system stops, none slow down". */
+export function hitLine(stop: number, slow: number) {
+  const a = stop ? `${plural(stop, "system")} ${stop === 1 ? "stops" : "stop"}` : "Nothing stops";
+  return `${a}, ${slow ? `${slow} ${stop ? "" : "systems "}slow down` : "none slow down"}`.replace("  ", " ");
+}
+
+/** "Waits on BILL-207, which IDN-58 blocks" from a step's prerequisites. */
+export function waitsOn(ps: { key: string; blocks?: string }[]) {
+  const main = ps.filter((p) => !p.blocks).map((p) => p.key);
+  const blockers = ps.filter((p) => p.blocks);
+  if (!main.length) return "";
+  const by = blockers.map((b) => b.key);
+  return `Waits on ${main.join(" and ")}${by.length ? `, which ${by.join(" and ")} ${by.length === 1 ? "blocks" : "block"}` : ""}`;
+}
+
 // ------------------------------------------------------------------ the recording
 
 /** Everything a live run returned, in order: enough to replay the run without the API. */
@@ -220,8 +236,9 @@ export interface Recording {
   fork: { uid: string; copy_ms: number; apply_ms: number; ms: number };
   diff: Diff;
   source: Record<string, unknown> | null;
-  plan: { events: { event: string; data: Record<string, unknown> }[]; ms: number };
-  news: { events: { event: string; data: Record<string, unknown> }[]; ms: number };
+  /** each event with `t`, ms since the stream opened, so a replay keeps the run's rhythm */
+  plan: { events: { event: string; data: Record<string, unknown>; t?: number }[]; ms: number };
+  news: { events: { event: string; data: Record<string, unknown>; t?: number }[]; ms: number };
   after: { fork: { uid: string; copy_ms: number; apply_ms: number; ms: number }; diff: Diff } | null;
   answer: { before: AnswerLite | null; after: AnswerLite | null };
 }

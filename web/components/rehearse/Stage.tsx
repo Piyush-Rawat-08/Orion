@@ -22,6 +22,7 @@ import { Spinner } from "../ui";
 import type { PlanResult } from "../multiverse/SafePath";
 import { currentTenant, get, post } from "@/lib/api";
 import { fmtDate, fmtMs } from "@/lib/format";
+import { checkReason } from "@/lib/words";
 import { postStream } from "@/lib/sse";
 import type { AnswerDetail, AnswerRow, Diff, GraphPayload } from "@/lib/types";
 import {
@@ -33,6 +34,7 @@ import {
   CALM,
   DECISION,
   GOAL,
+  hitLine,
   human,
   humanLabel,
   NEWS,
@@ -54,10 +56,16 @@ const STEPS: { scene: Scene; label: string }[] = [
 ];
 const ORDER: Scene[] = ["intro", "change", "cascade", "futures", "evidence", "finale"];
 
-type Ev = { event: string; data: Record<string, unknown> };
+type Ev = { event: string; data: Record<string, unknown>; t?: number };
 type Forked = { uid: string; copy_ms: number; apply_ms: number; ms: number; diff: Diff };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The search's status lines in words: "depth 1: forking 2 parallel companies" -> "Step 1: copying the company 2 times". */
+const planWords = (t: string) =>
+  t
+    .replace(/^depth (\d+): forking (\d+) parallel compan(y|ies)$/, (_, d, n) => `Step ${d}: copying the company ${n === "1" ? "once" : `${n} times`}`)
+    .replace(/^exploring ways to (.*) safely$/, (_, x) => `Looking for a safe way to ${x}`);
 
 function toLite(a: AnswerDetail): AnswerLite {
   return {
@@ -125,10 +133,13 @@ function useRunner(replay: Recording | null) {
       },
       async stream(kind: "plan" | "news", on: (e: Ev) => void, signal?: AbortSignal) {
         if (replay) {
-          const evs = replay[kind].events;
-          for (const e of evs) {
+          // the run's own rhythm, sped up where it waited long (a replay should not sit still for half a minute)
+          let last = 0;
+          for (const e of replay[kind].events) {
             if (signal?.aborted) return;
-            await wait(kind === "plan" ? (e.event === "universe" ? 650 : 250) : e.event === "status" ? 500 : 900);
+            const gap = e.t !== undefined ? e.t - last : 700;
+            last = e.t ?? last;
+            await wait(Math.min(2400, Math.max(250, gap * 0.6)));
             on(e);
           }
           return;
@@ -136,7 +147,7 @@ function useRunner(replay: Recording | null) {
         const t0 = performance.now();
         const log: Ev[] = [];
         const cb = (e: { event: string; data: Record<string, unknown> }) => {
-          log.push({ event: e.event, data: e.data });
+          log.push({ event: e.event, data: e.data, t: Math.round(performance.now() - t0) });
           on(e);
         };
         if (kind === "plan") await postStream("/plan", { ops: [GOAL] }, cb, signal);
@@ -170,6 +181,7 @@ export default function Stage() {
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [rejected, setRejected] = useState<{ label: string; why: string }[]>([]);
   const [planT0, setPlanT0] = useState(0);
+  const [planStatus, setPlanStatus] = useState("Checking out today's company");
   const [now, setNow] = useState(0);
   // scene 4
   const [news, setNews] = useState<{ started: boolean; received: boolean; closed: { subject: string; object: string }[]; opened: { subject: string; object: string }[]; expired: { broken: number; total: number } | null; done: boolean }>({
@@ -270,7 +282,8 @@ export default function Stage() {
         "plan",
         (e) => {
           const d = e.data;
-          if (e.event === "universe") setFutures((xs) => (xs.some((x) => x.id === d.id) ? xs : [...xs, d as unknown as Future]));
+          if (e.event === "status") setPlanStatus(planWords(String(d.text ?? "")));
+          else if (e.event === "universe") setFutures((xs) => (xs.some((x) => x.id === d.id) ? xs : [...xs, d as unknown as Future]));
           else if (e.event === "rejected") setRejected((xs) => [...xs, { label: String(d.label), why: String(d.why) }]);
           else if (e.event === "done" && d.result) setPlan(d.result as PlanResult);
           else if (e.event === "error") setError(String(d.text ?? "The search failed"));
@@ -482,9 +495,9 @@ export default function Stage() {
                 initial={reduce ? false : { opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, ease: EASE }}
-                className="heading max-w-[13ch] text-[clamp(3rem,8vw,6.5rem)] leading-[0.95] tracking-[-0.045em]"
+                className="heading text-[clamp(2.9rem,6.6vw,6.25rem)] leading-[0.96] tracking-[-0.045em]"
               >
-                Break your company.
+                <span className="block">Break your company.</span>
                 <span className="block text-muted">In a parallel universe.</span>
               </motion.h1>
               <motion.p
@@ -573,33 +586,20 @@ export default function Stage() {
             {/* the stage */}
             <section className="min-w-0" aria-label="Stage">
               {scene === "futures" ? (
-                map && <Futures nodes={futures} result={plan} rejected={rejected} map={map} customersOf={customersOf} />
+                map && futures.length ? (
+                  <Futures nodes={futures} result={plan} rejected={rejected} map={map} customersOf={customersOf} />
+                ) : (
+                  <div className="grid min-h-[420px] place-items-center rounded-2xl border border-dashed border-rule-strong">
+                    <p className="flex items-center gap-2.5 text-[15px] text-muted">
+                      <Spinner size={13} /> {planStatus}
+                    </p>
+                  </div>
+                )
               ) : (
                 <div className="relative">
-                  {/* the company as it is stays in view, faint, while the copy takes the stage */}
-                  <AnimatePresence>
-                    {scene !== "change" && map && (
-                      <motion.div
-                        key="ref"
-                        className="pointer-events-none absolute inset-0"
-                        initial={{ opacity: 0.9, x: 0, y: 0, scale: 1 }}
-                        animate={{ opacity: 0.16, x: -18, y: -16, scale: 0.97 }}
-                        transition={{ duration: 0.9, ease: EASE }}
-                        aria-hidden
-                      >
-                        <div className="rounded-2xl border border-rule bg-panel/40 p-3 md:p-5">
-                          <p className="mb-2 text-[13px] text-muted">Corvane today · untouched</p>
-                          <StageMap map={map} state={CALM} />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                   <motion.div
                     layout
                     className={`relative rounded-2xl border bg-panel p-3 md:p-5 ${scene === "change" ? "border-rule" : "border-ember/40 shadow-[0_40px_120px_-60px_rgb(255_107_53/0.45)]"}`}
-                    initial={false}
-                    animate={{ y: scene === "change" ? 0 : 10, x: scene === "change" ? 0 : 6 }}
-                    transition={{ duration: 0.9, ease: EASE }}
                   >
                     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
                       {scene === "change" ? (
@@ -622,7 +622,25 @@ export default function Stage() {
                         </>
                       )}
                     </div>
+                    {map && scene !== "change" && (
+                      // the company as it is, shrunk into the corner: a faint reference while the copy takes the stage
+                      <motion.div
+                        layoutId="today"
+                        transition={{ duration: 0.9, ease: EASE }}
+                        className="absolute right-4 top-11 z-[1] hidden w-[23%] rounded-lg border border-rule bg-night/90 p-1.5 opacity-80 md:block"
+                      >
+                        <p className="px-1 text-[11.5px] text-muted">Corvane today · untouched</p>
+                        <StageMap map={map} state={CALM} mini label="Corvane today, untouched" />
+                      </motion.div>
+                    )}
                     {map ? (
+                      <motion.div
+                        key={scene === "change" ? "today" : "copy"}
+                        layoutId={scene === "change" ? "today" : undefined}
+                        initial={scene === "change" ? false : { opacity: 0, scale: 0.985 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.7, ease: EASE, delay: scene === "change" ? 0 : 0.25 }}
+                      >
                       <StageMap
                         map={map}
                         state={scene === "change" ? CALM : scene === "evidence" ? (news.closed.length || after ? afterState : beforeState) : beforeState}
@@ -630,6 +648,7 @@ export default function Stage() {
                         focus={scene === "cascade" && cascadeDone ? ghost?.id : null}
                         onEdge={scene === "cascade" && cascadeDone ? () => void openSource() : undefined}
                       />
+                      </motion.div>
                     ) : (
                       <div className="grid aspect-[1000/540] place-items-center text-[14px] text-muted">
                         {error ? null : <Spinner />}
@@ -736,7 +755,7 @@ export default function Stage() {
                   ) : (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="space-y-4">
                       <Compare
-                        left={{ title: "Retire now", tone: "bad", lines: [`${t.stop} systems stop, ${t.slow} slow down`, `${nCust} customers affected`] }}
+                        left={{ title: "Retire now", tone: "bad", lines: [hitLine(t.stop, t.slow), `${nCust} customers affected`] }}
                         right={{
                           title: "Prepare first",
                           tone: plan.verdict === "residual" ? "warn" : "ok",
@@ -804,11 +823,11 @@ export default function Stage() {
                       {news.done && after && ta && (
                         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="space-y-4">
                           <Compare
-                            left={{ title: "Rehearsed before", tone: "bad", lines: [`${t.stop} stop, ${t.slow} slow down`, `${nCust} customers`] }}
+                            left={{ title: "Rehearsed before", tone: "bad", lines: [hitLine(t.stop, t.slow), plural(nCust, "customer")] }}
                             right={{
                               title: "Rehearsed now",
                               tone: ta.stop + ta.slow ? "warn" : "ok",
-                              lines: [`${ta.stop} ${ta.stop === 1 ? "stops" : "stop"}, ${ta.slow} slow down`, `${nCustAfter} customers`],
+                              lines: [hitLine(ta.stop, ta.slow), plural(nCustAfter, "customer")],
                             }}
                           />
                           <AnswerDelta a={answer.after ?? answer.before} />
@@ -1030,30 +1049,31 @@ function Beat({ on, label, sub }: { on: boolean; label: string; sub: string }) {
   );
 }
 
-/** The earlier answer, with only the points the new fact undid marked. */
+/** The earlier answer: the points the new fact undid, struck through with what is true now; the rest folded. */
 function AnswerDelta({ a }: { a: AnswerLite | null }) {
   if (!a) return null;
   const gone = a.claims.filter((c) => c.stale);
+  const held = a.claims.length - gone.length;
+  const now = (r?: string | null) => {
+    const m = /\(on today's company: (.*)\)$/.exec(r ?? "");
+    return m ? `On today's company the change ${m[1]}.` : checkReason(r);
+  };
   return (
     <div className="rounded-xl border border-rule bg-panel px-4 py-3.5">
       <p className="text-[13px] text-muted">
-        What Priya was told on {fmtDate(a.at)}: &ldquo;{a.question}&rdquo;
+        Priya&apos;s answer from {fmtDate(a.at)}: &ldquo;{a.question}&rdquo;
       </p>
-      <ul className="mt-2 space-y-1.5">
-        {a.claims.map((c) => (
-          <li key={c.text} className={`text-[13.5px] leading-snug ${c.stale ? "text-ink" : "text-faint"}`}>
-            {c.stale ? (
-              <>
-                <span className="line-through decoration-warn decoration-[1.5px]">{c.text}</span>
-                <span className="mt-0.5 block text-[12.5px] text-warn">No longer holds{c.stale_reason ? `: ${c.stale_reason}` : ""}</span>
-              </>
-            ) : (
-              c.text
-            )}
+      <ul className="mt-2.5 space-y-2.5">
+        {gone.map((c) => (
+          <li key={c.text} className="text-[14px] leading-snug">
+            <span className="text-faint line-through decoration-warn decoration-[1.5px]">{c.text}</span>
+            <span className="mt-0.5 block text-[13px] text-warn">{now(c.stale_reason)}</span>
           </li>
         ))}
       </ul>
-      {!gone.length && <p className="mt-2 text-[12.5px] text-muted">Every point still holds.</p>}
+      <p className="mt-2.5 text-[13px] text-muted">
+        {gone.length ? `The other ${plural(held, "point")} still ${held === 1 ? "holds" : "hold"}.` : "Every point still holds."}
+      </p>
     </div>
   );
 }

@@ -225,8 +225,9 @@ export default function StageMap({
             {!mini && (
               <>
                 <text
-                  y={r + 24}
-                  textAnchor="middle"
+                  x={n.col === 0 ? -(r + 12) : 0}
+                  y={n.col === 0 ? 1 : r + 24}
+                  textAnchor={n.col === 0 ? "end" : "middle"}
                   fontSize={18}
                   fontWeight={600}
                   fontFamily="var(--font-display)"
@@ -238,7 +239,7 @@ export default function StageMap({
                 >
                   {human(n.id)}
                 </text>
-                <text y={r + 43} textAnchor="middle" fontSize={13} fontFamily="var(--font-mono)" fill="var(--color-faint)" paintOrder="stroke" stroke="var(--color-night)" strokeWidth={4}>
+                <text x={n.col === 0 ? -(r + 12) : 0} y={n.col === 0 ? 20 : r + 43} textAnchor={n.col === 0 ? "end" : "middle"} fontSize={13} fontFamily="var(--font-mono)" fill="var(--color-faint)" paintOrder="stroke" stroke="var(--color-night)" strokeWidth={4}>
                   {n.id}
                   {tag ? ` · ${tag}` : ""}
                 </text>
@@ -276,7 +277,7 @@ export default function StageMap({
               {custLit && state.customers.length ? `${nAffected} of ${map.customers.length} customers` : `${map.customers.length} customers`}
             </text>
             <text x={map.cust.x} y={gy + rows * cell + 41} textAnchor="middle" fontSize={13} fontFamily="var(--font-mono)" fill="var(--color-faint)">
-              {custLit && state.customers.length ? "use a system that is hit" : "use these systems"}
+              {custLit && state.customers.length ? "use an affected system" : "use these systems"}
             </text>
           </>
         )}

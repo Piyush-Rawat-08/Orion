@@ -10,13 +10,15 @@ import { motion, useReducedMotion } from "motion/react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PlanNode, PlanResult } from "../multiverse/SafePath";
 import type { CompanyMap, PlanMove } from "@/lib/rehearsal";
-import { human, humanLabel, plural, stateOfFuture, tally } from "@/lib/rehearsal";
+import { human, humanLabel, plural, stateOfFuture, tally, waitsOn } from "@/lib/rehearsal";
 import StageMap from "./StageMap";
 
 export type Future = PlanNode & { effects?: Record<string, string>; moves?: PlanMove[] };
 
 /** What a future leaves broken, in words, against the one it branched from. */
-export function outcome(f: Future, parent: Future | undefined, prereqs: string[]) {
+type Prereq = { key: string; blocks?: string };
+
+export function outcome(f: Future, parent: Future | undefined, prereqs: Prereq[]) {
   const effects = f.effects ?? Object.fromEntries(f.broken.map((b) => [b, "break"]));
   const { stop, slow } = tally(effects);
   const offToo = (f.moves ?? []).filter((m) => m.off).map((m) => human(m.service));
@@ -24,7 +26,7 @@ export function outcome(f: Future, parent: Future | undefined, prereqs: string[]
     return {
       tone: "ok" as const,
       head: "Nothing in the model is hit",
-      why: prereqs.length ? `Once ${prereqs.join(" and ")} land.` : "Every system that relied on it has moved.",
+      why: prereqs.length ? `Every system that relied on it has moved. ${waitsOn(prereqs)}.` : "Every system that relied on it has moved.",
     };
   if (!f.broken.length)
     return {
@@ -32,16 +34,17 @@ export function outcome(f: Future, parent: Future | undefined, prereqs: string[]
       head: `Nothing stops, but ${plural(f.customers, "customer")} lose ${offToo.join(", ") || "a system"}`,
       why: "Switching it off too takes away something customers use.",
     };
-  const head = [stop && `${stop} stop${stop === 1 ? "s" : ""}`, slow && `${slow} slow down`, f.customers && plural(f.customers, "customer")]
-    .filter(Boolean)
-    .join(" · ");
+  // a few systems by name, many by count
+  const verb = (b: string) => (effects[b] === "break" ? "stops" : "slows down");
+  const named = f.broken.length <= 2 ? f.broken.map((b) => `${human(b)} ${verb(b)}`) : [stop && `${stop} stop`, slow && `${slow} slow down`];
+  const head = [...named, f.customers && plural(f.customers, "customer")].filter(Boolean).join(" · ");
   if (!parent) return { tone: "bad" as const, head, why: "Every system that relies on it, directly or not, is hit." };
   const fixed = parent.broken.filter((b) => !f.broken.includes(b));
   const left = f.broken.map((b) => human(b));
   return {
     tone: "bad" as const,
     head,
-    why: `${fixed.length ? `Fixes ${plural(fixed.length, "system")} and ${parent.customers - f.customers} customers. ` : ""}${left.join(", ")} still ${f.broken.length === 1 ? (effects[f.broken[0]] === "break" ? "stops" : "slows down") : "break"}.`,
+    why: `${fixed.length ? `Fixes ${plural(fixed.length, "system")} and ${parent.customers - f.customers} customers; ` : ""}${left.join(", ")} still ${f.broken.length === 1 ? verb(f.broken[0]) : "hit"}.`,
   };
 }
 
@@ -65,7 +68,7 @@ function Card({
   index: number;
   chosen: boolean;
   done: boolean;
-  prereqs: string[];
+  prereqs: Prereq[];
   big: boolean;
 }) {
   const reduce = useReducedMotion();
@@ -102,8 +105,8 @@ function Card({
           {o.head}
         </p>
         <p className="mt-1 text-[13.5px] leading-snug text-muted">{o.why}</p>
-        {chosen && done && prereqs.length > 0 && (
-          <p className="mt-2 text-[12.5px] leading-snug text-warn">Waits on {prereqs.join(" ← ")}</p>
+        {chosen && done && prereqs.length > 0 && o.tone !== "ok" && (
+          <p className="mt-2 text-[12.5px] leading-snug text-warn">{waitsOn(prereqs)}</p>
         )}
       </div>
     </motion.article>
@@ -133,8 +136,7 @@ export default function Futures({
   const prereqsOf = (f: Future) => {
     if (!result) return [];
     const labels = new Set(f.steps);
-    const ps = result.steps.filter((s) => labels.has(s.label)).flatMap((s) => s.prerequisites ?? []);
-    return ps.map((p) => p.key);
+    return result.steps.filter((s) => labels.has(s.label)).flatMap((s) => s.prerequisites ?? []);
   };
   // a turned-down candidate hangs off the future whose next move it competed with: "Move X onto …" alternatives
   // branch from the parent of the explored "Move X …" future
