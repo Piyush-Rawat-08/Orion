@@ -184,7 +184,7 @@ export default function Stage() {
   const [planStatus, setPlanStatus] = useState("Checking out today's company");
   const [now, setNow] = useState(0);
   // scene 4
-  const [news, setNews] = useState<{ started: boolean; received: boolean; closed: { subject: string; object: string }[]; opened: { subject: string; object: string }[]; expired: { broken: number; total: number } | null; done: boolean }>({
+  const [news, setNews] = useState<{ started: boolean; received: boolean; reader?: string; closed: { subject: string; object: string }[]; opened: { subject: string; object: string }[]; expired: { broken: number; total: number } | null; done: boolean }>({
     started: false,
     received: false,
     closed: [],
@@ -317,7 +317,8 @@ export default function Stage() {
     try {
       await run.stream("news", (e) => {
         const d = e.data;
-        if (e.event === "extracted" || e.event === "status") setNews((n) => ({ ...n, received: true }));
+        if (e.event === "extracted") setNews((n) => ({ ...n, received: true, reader: d.reader ? String(d.reader) : undefined }));
+        else if (e.event === "status") setNews((n) => ({ ...n, received: true }));
         else if (e.event === "fact_closed")
           setNews((n) => ({ ...n, received: true, closed: [...n.closed, { subject: String(d.subject), object: String(d.object) }] }));
         else if (e.event === "fact_opened")
@@ -822,7 +823,11 @@ export default function Stage() {
                     <div className="space-y-5">
                       <Bubble small />
                       <ol className="space-y-2.5">
-                        <Beat on={news.received} label="New source received" sub="#billing, Tomasz Nowak" />
+                        <Beat
+                          on={news.received}
+                          label="New source received"
+                          sub={`#billing, Tomasz Nowak${news.reader === "rules" ? " · read by Orion's sentence rules (the model was slow)" : news.reader ? " · read by the model" : ""}`}
+                        />
                         <Beat
                           on={news.closed.length > 0}
                           label="Dependency updated"
