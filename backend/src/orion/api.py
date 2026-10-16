@@ -170,6 +170,8 @@ app.add_middleware(TemplateReadOnly)
 # outermost, so every response carries CORS headers, refusals included
 app.add_middleware(CORSMiddleware,
                    allow_origins=[o.strip() for o in (env("ORION_CORS") or "http://localhost:3001").split(",")],
+                   # preview deployments of the web app, to try a change before it goes live
+                   allow_origin_regex=env("ORION_CORS_REGEX") or None,
                    allow_methods=["GET", "POST"], allow_headers=["authorization", "content-type", "accept", "x-admin-token"])
 
 

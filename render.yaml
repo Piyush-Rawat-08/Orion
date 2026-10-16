@@ -35,5 +35,7 @@ services:
         generateValue: true
       - key: ORION_CORS
         value: https://orion-gamma-six.vercel.app
+      - key: ORION_CORS_REGEX
+        value: ^https://orion-[a-z0-9]+-sumits-projects-94eace69\.vercel\.app$
       - key: ORION_LLM_PER_HOUR
         value: "60"

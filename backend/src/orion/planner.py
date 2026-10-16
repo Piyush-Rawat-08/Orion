@@ -225,6 +225,7 @@ def plan(db: dbm.DB, t: str, goal: list[dict], emit=None, asof: str | None = Non
         n = {"id": f"p{next(seq)}", "parent": parent, "depth": depth, "label": label, "why": why, "fixes": fixes,
              "risk": r["risk"], "level": r["level"], "broken": [b["service"] for b in r["broken"]],
              "customers": len(r["customers"]), "orphans": r["orphans"], "effort": _effort(fixes), "ms": r["ms"],
+             "effects": {b["service"]: b["effect"] for b in r["broken"]}, "moves": _moves(db, g, fixes),
              "result": r}
         explored.append(n)
         emit({"type": "universe", **{k: v for k, v in n.items() if k not in ("fixes", "result")},
@@ -295,6 +296,19 @@ def _try(node, fixes, parent, depth, opt):
         return node(fixes, parent, depth, opt["label"], opt["why"])
     except opsm.OpError:
         return None
+
+
+def _moves(db: dbm.DB, g: str, fixes: list[dict]) -> list[dict]:
+    """What a state changed, by name, for drawing it: dependencies moved (from -> to) and systems switched off."""
+    ops = [o for f in fixes for o in opsm.named(f["ops"], opsm.names_of(db, g, f["ops"]))]
+    out = []
+    for o in ops:
+        if o["op"] == "add_dependency":
+            old = next((x["target"] for x in ops if x["op"] == "remove_dependency" and x["source"] == o["source"]), None)
+            out.append({"service": o["source"], "to": o["target"], "from": old})
+        elif o["op"] == "deprecate_service":
+            out.append({"service": o["service"], "off": True})
+    return out
 
 
 def _public(n: dict) -> dict:

@@ -70,3 +70,15 @@ def test_a_move_carries_the_open_tickets_it_waits_on_and_the_verdict_says_so(db,
     assert set(keys) == {"BILL-207", "IDN-58"} and keys["IDN-58"]["blocks"] == "BILL-207"
     assert r["best"]["risk"] == 0 and r["verdict"] == "prerequisites"
     assert r["assumptions"]
+
+
+def test_each_explored_copy_says_how_each_system_is_hit_and_what_it_moved(db, tenant):
+    # the rehearsal draws every explored copy on the same map: it needs the effect per system and the moves by name
+    r = planner.plan(db, tenant, SSO_OFF)
+    by = {u["id"]: u for u in r["universes"]}
+    root, best = by[r["path"][0]], by[r["best"]["id"]]
+    assert root["moves"] == [] and set(root["effects"]) == set(root["broken"])
+    assert root["effects"]["invoice-render"] == "break" and root["effects"]["billing-api"] == "degrade"
+    assert best["effects"] == {} and {"service": "invoice-render", "to": "identity", "from": "sso-legacy"} in best["moves"]
+    off_too = next(u for u in r["universes"] if u["label"].startswith("Switch reports-legacy off"))
+    assert {"service": "reports-legacy", "off": True} in off_too["moves"]
