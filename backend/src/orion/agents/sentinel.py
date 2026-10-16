@@ -145,6 +145,9 @@ def apply_changes(db: dbm.DB, t: str, source_uid: str, changes: list[dict], tick
         db.q(g, "MATCH (k:Ticket {uid: $u}) SET k.status = $s, k.updated_at = $now", {"u": tk["uid"], "s": tk["status"], "now": now})
     wrote = closed or opened or ticket_updates or contradictions
     version = dbm.bump(db, t) if wrote else dbm.version(db, t)
+    if wrote and emit:
+        # the records now say it: anything forked from here on sees the change (answers are re-checked next)
+        emit({"type": "recorded", "agent": "sentinel", "version": version})
     touched = sorted({u for c in applied for u in (c["subject_uid"], c["object_uid"])} | {x["uid"] for x in ticket_updates})
     notifications = after_change(db, t, closed, touched, source_uid, now, emit) if wrote else []
     return {"closed": closed, "opened": opened, "review": review, "contradictions": contradictions,

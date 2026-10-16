@@ -51,7 +51,7 @@ Use those names exactly. Return nothing when nothing changes."""
 LABELS = {"DEPENDS_ON": ("Service", "Service"), "OWNS": ("Team", "Service"), "MEMBER_OF": ("Person", "Team")}
 
 
-EXTRACT_DEADLINE_S = float(os.environ.get("ORION_EXTRACT_DEADLINE", "10"))
+EXTRACT_DEADLINE_S = float(os.environ.get("ORION_EXTRACT_DEADLINE", "6"))
 _late = ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract")
 
 
@@ -129,7 +129,7 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
     with dbm.tagged(f"task:{task}"):
         try:
             raw = extract(text, services, teams)
-            lap("read by the model")
+            lap(f"read by the {raw.get('reader')}")
         except Exception as e:
             blackboard.fail(db, t, task, str(e))
             raise
