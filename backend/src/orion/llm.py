@@ -108,11 +108,16 @@ def _a_usage(response) -> dict:
 
 
 def _a_json(model: str, system: str, user: str, schema: dict, max_tokens: int, effort: str) -> dict:
-    response = _anthropic().messages.create(
+    t0 = time.perf_counter()
+    raw = _anthropic().messages.with_raw_response.create(
         model=model, max_tokens=max_tokens, system=system,
         messages=[{"role": "user", "content": user}],
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     )
+    response = raw.parse()
+    # a slow answer is usually the client retrying an overloaded or rate-limited request: say which
+    print(f"model {model}: {time.perf_counter() - t0:.1f}s, {getattr(raw, 'retries_taken', 0)} retries, "
+          f"request {raw.headers.get('request-id')}", flush=True)
     _check(response)
     text = next(b.text for b in response.content if b.type == "text")
     return json.loads(text)
