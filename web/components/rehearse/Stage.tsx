@@ -226,6 +226,15 @@ export default function Stage() {
     if (awake || replay) void load();
   }, [awake, replay, load]);
 
+  // the introduction's background map, from the recorded run until this copy's own map arrives (same layout)
+  const [backdrop, setBackdrop] = useState<CompanyMap | null>(null);
+  useEffect(() => {
+    fetch("/rehearsal-replay.json", { cache: "force-cache" })
+      .then((r) => r.json())
+      .then((rec: Recording) => setBackdrop(buildMap(rec.graph)))
+      .catch(() => {});
+  }, []);
+
   const ghost = map?.edges.find((e) => !e.declared && e.dependency === GOAL.service) ?? null;
   // this copy already took Tomasz's message (the Inbox demo was played here): the story has already happened
   const spent = !!map && !replay && !map.edges.some((e) => e.dependent === "invoice-render" && e.dependency === GOAL.service);
@@ -493,7 +502,7 @@ export default function Stage() {
           >
             {/* the working map, faint, behind the introduction: the first click goes straight into it */}
             <div className="pointer-events-none absolute inset-y-0 right-[-8%] hidden w-[72%] items-center opacity-30 md:flex" aria-hidden>
-              {map && <StageMap map={map} state={CALM} label="Corvane's map" />}
+              {(map ?? backdrop) && <StageMap map={(map ?? backdrop)!} state={CALM} label="Corvane's map" />}
             </div>
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,var(--color-night)_32%,transparent_80%)]" aria-hidden />
             <div className="relative mx-auto w-full max-w-[1480px] px-5 py-16 md:px-10">

@@ -19,7 +19,7 @@ const heading = Inter_Tight({
 export const metadata: Metadata = {
   title: { default: "Orion", template: "%s · Orion" },
   description:
-    "Your company's memory. Ask anything and get answers with their sources, and test a change on a copy of the company before you make it.",
+    "Break your company in a parallel universe. Rehearse a system change on a copy of the company, see what breaks, and find a safer sequence before anything changes in production.",
 };
 
 export const viewport: Viewport = {

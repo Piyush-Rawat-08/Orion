@@ -1,11 +1,30 @@
 # Orion
 
-**See the company before you change it.**
+**Break your company. In a parallel universe.**
 
-Live: **https://orion-gamma-six.vercel.app**. The first screen is a real answer Priya got about switching off
-sso-legacy, every claim marked checked or not, and **Start here** walks the three beats in about two minutes: the
-what-if, the answer going stale when Tomasz posts BILL-207, and the INC-311 replay. A scheduled ping keeps the API
-awake; if it has slept anyway, the page says so and wakes it in about a minute.
+A flight simulator for company decisions: rehearse a system change on a copy of the company, watch what breaks,
+find a better sequence, and see the recommendation change when the facts do. Nothing in production moves.
+
+Live: **https://orion-gamma-six.vercel.app**. A first visit opens on the guided rehearsal, about two minutes, run
+live in your own copy of Corvane (a made-up company; every person, system and customer is synthetic):
+
+1. **The change.** Retire the legacy authentication service (`sso-legacy`), on a map of everything that relies on it.
+2. **The consequences.** Orion copies the whole company graph and switches it off there. The failure walks out
+   dependency by dependency: 2 systems stop, 3 slow down, 16 customers affected. The link that starts most of it was
+   never in the service catalog; one click shows the #billing message it came from.
+3. **Other futures.** The safe-path search rehearses ways out, each its own copy of the company, drawn on the same
+   map: retire now, move invoice PDFs first, also switch off nightly reports (3 customers lose them), or move both
+   onto identity (nothing modeled is hit, once BILL-207 and IDN-58 land). Turned-down moves hang off the branch they
+   came from, with the reason.
+4. **New evidence.** Tomasz posts in #billing that BILL-207 is merged. The dependency closes, Priya's earlier answer
+   is flagged (3 of its 9 points no longer hold), and the decision is rehearsed again on the changed company: now 1
+   system stops and 3 customers are affected.
+
+`/rehearse?replay` plays a recorded run instead, labelled Replay throughout, for a presentation over a bad connection.
+The workspace behind it (Ask, What-ifs, Hindsight, Proof, Approvals, History, Teams) is one click away. A scheduled
+ping keeps the API awake; if it has slept anyway, the page says so and wakes it in about a minute.
+
+![The rehearsal: the failure walks out from sso-legacy to 16 customers, on a copy of the company](docs/media/rehearse-consequences.jpg)
 
 Orion keeps a company's people, teams, systems, decisions and conversations in one [FalkorDB](https://falkordb.com)
 graph. Before anyone switches off a system, loses a teammate or merges two teams, Orion copies the whole company
@@ -13,7 +32,7 @@ graph into a parallel universe, makes the change there, and shows what breaks, w
 to agree, and where every claim comes from. An assistant answers questions by walking the graph, every point in its
 answer is checked against the records before you see it, and the answer re-checks itself when the company changes.
 
-![Ask: every point checked against the records](docs/media/ask.jpg)
+![Other futures: four copies of the company on the safe path's search tree, the chosen line lit](docs/media/rehearse-futures.jpg)
 
 ## Tracks
 

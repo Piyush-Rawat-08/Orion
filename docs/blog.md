@@ -22,8 +22,9 @@ wasn't anywhere you'd look before approving the change.
 Could anyone have seen it coming on 3 March, with only what had been written down by then?
 
 I built **Orion** for the Graph Hacks hackathon to answer questions like that one, and to make asking them cheap.
-Before anyone switches off a system, loses a teammate or merges two teams, Orion copies the entire company into a
-parallel universe, makes the change there, and shows you what breaks.
+Think of it as a flight simulator for company decisions. Before anyone switches off a system, loses a teammate or
+merges two teams, Orion copies the entire company into a parallel universe, makes the change there, and shows you
+what breaks, then rehearses other ways to get there.
 
 ## The same decision, two versions of 3 March
 
@@ -43,19 +44,24 @@ afterwards it can tell you exactly how big the blind spot was.
 
 ## Two minutes with the demo
 
-The live demo is at **https://orion-gamma-six.vercel.app**. It opens on a real answer Priya got to "What breaks if we
-switch off sso-legacy?", with every point marked checked or not. If the header says "Waking the API", give it a
-minute: the API runs on a free host that sleeps. Your first visit gets a copy of the company of its own, so nothing
-you change spoils it for the next person. Then do three things, in order (the **Start here** panel walks you through
-them too):
+The live demo is at **https://orion-gamma-six.vercel.app**. A first visit opens on a guided rehearsal of one
+decision, retiring sso-legacy, played live in a copy of the company of your own (nothing you change spoils it for the
+next person). If it says it's waking the API, give it a minute: the API runs on a free host that sleeps. Then four
+scenes, each one a press of a button:
 
-1. **Break something.** Press "Open the what-if". sso-legacy is switched off in a copy of the company: see what stops
-   working and who would notice, then press **Find the safe path**.
-2. **Fix the knowledge.** Go to Inbox (under More), press "Use the example message", then **Post to #billing**. That's
-   Tomasz saying the dependency is gone. Priya's earlier answer is flagged out of date, with the points that broke.
-3. **Travel back in time.** Open Hindsight and pick INC-311: what was known on 3 March against what was true.
+1. **The change.** A map of everything that relies on sso-legacy, and the 16 customers who use those systems.
+2. **The consequences.** Orion copies the company and switches sso-legacy off in the copy. The failure walks out one
+   dependency at a time: two systems stop, three slow down, all 16 customers are affected. The dashed line is the
+   dependency nobody wrote down; click it to see Tomasz's message.
+3. **Other futures.** The safe-path search, each future its own copy, drawn on the same map. The one that works moves
+   both systems onto identity first, and it waits on two open tickets.
+4. **New evidence.** Tomasz says BILL-207 is merged. The dependency closes, Priya's earlier answer is flagged out of
+   date, and the decision is rehearsed again: now one system stops and three customers notice.
 
-![The Ask screen: every point in the answer checked against the records, and the one it couldn't confirm marked that way](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/ask.jpg)
+![The rehearsal: sso-legacy switched off in a copy of the company, the failure walked out to all 16 customers](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/rehearse-consequences.jpg)
+
+Hindsight and INC-311, below, are the encore. Everything else (asking questions, approvals, the company on any past
+date) is in the workspace behind it.
 
 ## A graph that can go backwards in time
 
@@ -347,8 +353,8 @@ network round trips, is why the same search takes seven seconds there and under 
 
 ## Try changing a company without breaking one
 
-- **Live:** https://orion-gamma-six.vercel.app. Break something, fix the knowledge, travel back in time: the
-  **Start here** panel walks you through all three in about two minutes.
+- **Live:** https://orion-gamma-six.vercel.app. Break the company, find a safer sequence, watch a new fact change
+  the decision: the guided rehearsal takes about two minutes.
 - **Code, setup and the full graph model:** https://github.com/Sumit99589/orion. It runs locally with Docker, uv and
   Node, and it can also load any public GitHub repository as a company.
 
