@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import time
 
 from orion import blackboard
 from orion import db as dbm
@@ -73,6 +74,8 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
 
     g = dbm.org(t)
     author_uid = posted_by
+    t0 = time.perf_counter()
+    lap = lambda what: print(f"message {t}: {what} at {time.perf_counter() - t0:.1f}s", flush=True)  # noqa: E731
     now = dbm.tick(db, t)
     mid = f"msg:live-{secrets.token_hex(4)}"
     db.q(g, """MATCH (p:Person {uid: $a})
@@ -87,17 +90,21 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
     mentions = [r["name"] for r in db.ro(g, "MATCH (n) WHERE n.uid IN $u RETURN coalesce(n.name, n.key) AS name",
                                          {"u": mention_uids})] if mention_uids else []
 
+    lap("stored")
     task = blackboard.post(db, t, "extract", {"message": mid, "text": text}, posted_by=posted_by or "api")
     blackboard.claim(db, t, "cartographer-1", ["extract"], uid=task)
     emit({"type": "status", "agent": "cartographer", "text": f"reading the message in {channel}"})
     from orion import epoch as ep
 
+    lap("task claimed")
     now_g = ep.now(db, t)
     services = [r["n"] for r in db.ro(now_g, "MATCH (s:Service) RETURN s.name AS n")]
     teams = [r["n"] for r in db.ro(now_g, "MATCH (x:Team) RETURN x.name AS n")]
+    lap("today's company checked out")
     with dbm.tagged(f"task:{task}"):
         try:
             raw = extract(text, services, teams)
+            lap("read by the model")
         except Exception as e:
             blackboard.fail(db, t, task, str(e))
             raise
