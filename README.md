@@ -194,7 +194,7 @@ uv run orion departures                                        # everyone ranked
 uv run orion approve u1 person:priya-raman                     # approve as Priya (Platform)
 uv run orion message "invoice-render no longer calls sso-legacy" --author person:tomasz-nowak
 uv run orion repo FalkorDB/falkordb-py                         # load a public repository (needs GITHUB_TOKEN)
-uv run pytest -q                                               # 83 tests, incl. the equivalence property test
+uv run pytest -q                                               # 87 tests, incl. the equivalence property test
 ```
 
 ### Codebases (any public GitHub repository)
