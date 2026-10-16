@@ -241,8 +241,14 @@ export default function StageMap({
                 </text>
                 <text x={n.col === 0 ? -(r + 12) : 0} y={n.col === 0 ? 20 : r + 43} textAnchor={n.col === 0 ? "end" : "middle"} fontSize={13} fontFamily="var(--font-mono)" fill="var(--color-faint)" paintOrder="stroke" stroke="var(--color-night)" strokeWidth={4}>
                   {n.id}
-                  {tag ? ` · ${tag}` : ""}
+                  {tag && n.col !== 0 ? ` · ${tag}` : ""}
                 </text>
+                {/* the first column has less room to its left: its tag gets a line of its own */}
+                {tag && n.col === 0 && (
+                  <text x={-(r + 12)} y={37} textAnchor="end" fontSize={13} fontFamily="var(--font-mono)" fill="var(--color-faint)" paintOrder="stroke" stroke="var(--color-night)" strokeWidth={4}>
+                    {tag}
+                  </text>
+                )}
               </>
             )}
           </g>

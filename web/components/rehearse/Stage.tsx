@@ -378,7 +378,13 @@ export default function Stage() {
     }
   };
 
-  const playRecording = async () => {
+  // ?replay opens on the recorded run (for a presentation over a bad connection); it still says Replay throughout
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("replay")) void playRecording(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const playRecording = async (start = true) => {
     setError(null);
     try {
       const r = await fetch("/rehearsal-replay.json", { cache: "force-cache" });
@@ -393,7 +399,7 @@ export default function Stage() {
       setSource(null);
       setSourceOpen(false);
       setReplay(rec);
-      go("change");
+      if (start) go("change");
     } catch {
       setError("The recorded run couldn't be loaded.");
     }
@@ -550,7 +556,7 @@ export default function Stage() {
                       Waking the free API server, about a minute <span className="tnum text-faint">{waited}s</span>
                     </span>
                     {waited > 6 && (
-                      <button type="button" onClick={playRecording} className="text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink">
+                      <button type="button" onClick={() => void playRecording()} className="text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink">
                         Watch a recorded run meanwhile
                       </button>
                     )}
@@ -627,7 +633,7 @@ export default function Stage() {
                       <motion.div
                         layoutId="today"
                         transition={{ duration: 0.9, ease: EASE }}
-                        className="absolute right-4 top-11 z-[1] hidden w-[23%] rounded-lg border border-rule bg-night/90 p-1.5 opacity-80 md:block"
+                        className="absolute left-4 top-11 z-[1] hidden w-[19%] rounded-lg border border-rule bg-night/90 p-1.5 opacity-80 md:block"
                       >
                         <p className="px-1 text-[11.5px] text-muted">Corvane today · untouched</p>
                         <StageMap map={map} state={CALM} mini label="Corvane today, untouched" />
@@ -667,7 +673,7 @@ export default function Stage() {
                   <p className="text-ink">That step didn&apos;t finish.</p>
                   <p className="mt-1 text-[13px] text-muted">{error}</p>
                   {!replay && (
-                    <button type="button" onClick={playRecording} className="mt-2 text-[13px] text-ink underline underline-offset-4">
+                    <button type="button" onClick={() => void playRecording()} className="mt-2 text-[13px] text-ink underline underline-offset-4">
                       Watch the recorded run instead (labelled Replay)
                     </button>
                   )}
