@@ -8,9 +8,12 @@ decides what each does.
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 
 from orion import blackboard
 from orion import db as dbm
@@ -48,18 +51,40 @@ Use those names exactly. Return nothing when nothing changes."""
 LABELS = {"DEPENDS_ON": ("Service", "Service"), "OWNS": ("Team", "Service"), "MEMBER_OF": ("Person", "Team")}
 
 
+EXTRACT_DEADLINE_S = float(os.environ.get("ORION_EXTRACT_DEADLINE", "10"))
+_late = ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract")
+
+
 def extract(text: str, services: list[str], teams: list[str]) -> dict:
-    if llm.available():
-        return llm.json_call(SYSTEM.format(services=", ".join(services), teams=", ".join(teams)), text, SCHEMA)
-    return _rules(text, services)
+    """The changes a message states, read by the model. A model call usually takes a few seconds but sometimes
+    twenty; past the deadline, a message in one of the plain shapes the rules know ("X no longer calls Y") is read
+    by the rules instead, and the result says which reader it came from."""
+    if not llm.available():
+        return {**_rules(text, services), "reader": "rules"}
+    call = _late.submit(llm.json_call, SYSTEM.format(services=", ".join(services), teams=", ".join(teams)), text, SCHEMA)
+    try:
+        return {**call.result(timeout=EXTRACT_DEADLINE_S), "reader": "model"}
+    except FutureTimeout:
+        quick = _rules(text, services)
+        if quick["changes"]:
+            print(f"model slower than {EXTRACT_DEADLINE_S:.0f}s: read by the rules", flush=True)
+            return {**quick, "reader": "rules"}
+        return {**call.result(), "reader": "model"}
 
 
 def _rules(text: str, services: list[str]) -> dict:
     """Without a model: the sentence shapes the demo uses ("X no longer calls Y", "X now gets ... from Y")."""
     names = "|".join(sorted((re.escape(s) for s in services), key=len, reverse=True))
     out = []
-    for m in re.finditer(rf"({names})[^.]*?\bno longer (?:calls|uses|relies on|depends on|talks to)\s+({names})", text, re.I):
-        out.append({"relation": "DEPENDS_ON", "subject": m.group(1), "object": m.group(2), "change": "stops",
+    for m in re.finditer(rf"\b({names}|it)\b[^.]*?\bno longer (?:calls|uses|relies on|depends on|talks to)\s+({names})", text, re.I):
+        subject = m.group(1)
+        if subject.lower() == "it":  # "It no longer calls Y": the system the sentence before was about
+            before = [x for x in text[: m.start()].split(".") if x.strip()]
+            first = re.search(rf"\b({names})\b", before[-1], re.I) if before else None
+            if not first:
+                continue
+            subject = first.group(1)
+        out.append({"relation": "DEPENDS_ON", "subject": subject, "object": m.group(2), "change": "stops",
                     "stated": "firm", "kind": None, "quote": m.group(0)})
     for m in re.finditer(rf"({names})\s+now\s+(?:gets[^.]*?from|uses|calls|relies on|depends on)\s+({names})", text, re.I):
         out.append({"relation": "DEPENDS_ON", "subject": m.group(1), "object": m.group(2), "change": "starts",
@@ -129,7 +154,8 @@ def ingest_message(db: dbm.DB, t: str, channel: str, author: str, text: str, emi
                         f"{mid}: {len(changes)} change(s) of fact, {len(tickets)} ticket update(s)")
     emit({"type": "extracted", "agent": "cartographer", "message": mid, "mentions": mentions,
           "changes": [{k: c[k] for k in ("relation", "subject", "object", "change", "quote")} for c in changes],
-          "ticket_updates": [{"key": x["key"], "status": x["status"]} for x in tickets], "skipped": skipped})
+          "ticket_updates": [{"key": x["key"], "status": x["status"]} for x in tickets], "skipped": skipped,
+          "reader": raw.get("reader", "model")})
     step = blackboard.post(db, t, "apply", {"message": mid, "changes": len(changes)}, posted_by="cartographer-1", follows=task)
     blackboard.claim(db, t, "sentinel-1", ["apply"], uid=step)
     # removals first, so "moved from X to Y" closes the old fact before opening the new one

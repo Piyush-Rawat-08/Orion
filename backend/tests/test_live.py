@@ -167,3 +167,21 @@ def test_counters_and_locks_live_in_a_graph_and_hold_under_races(db, tenant):
         pass  # free again once released
     db.set(f"orion:{tenant}:gone", "1", ex=-1)
     assert db.get(f"orion:{tenant}:gone") is None  # expired
+
+
+def test_a_slow_model_gives_way_to_the_rules_for_a_plain_message(monkeypatch):
+    import time as _t
+
+    from orion import llm
+    from orion.agents import cartographer
+
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "json_call", lambda *a, **k: (_t.sleep(1.5), {"changes": [], "ticket_updates": []})[1])
+    monkeypatch.setattr(cartographer, "EXTRACT_DEADLINE_S", 0.2)
+    text = "BILL-207 is merged: invoice-render now gets its signing token from identity. It no longer calls sso-legacy at all."
+    out = cartographer.extract(text, ["invoice-render", "identity", "sso-legacy"], ["Billing"])
+    assert out["reader"] == "rules"
+    assert {(c["subject"], c["object"], c["change"]) for c in out["changes"]} == {
+        ("invoice-render", "sso-legacy", "stops"), ("invoice-render", "identity", "starts")}
+    # a message the rules can't read waits for the model
+    assert cartographer.extract("hm, not sure about any of this", ["invoice-render"], [])["reader"] == "model"
