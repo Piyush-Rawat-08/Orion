@@ -505,10 +505,10 @@ export default function Stage() {
             aria-label="Orion"
           >
             {/* the working map, faint, behind the introduction: the first click goes straight into it */}
-            <div className="pointer-events-none absolute inset-y-0 right-[-8%] hidden w-[72%] items-center opacity-30 md:flex" aria-hidden>
+            <div className="pointer-events-none absolute inset-y-0 right-[1%] hidden w-[50%] translate-y-8 items-center opacity-35 md:flex" aria-hidden>
               {(map ?? backdrop) && <StageMap map={(map ?? backdrop)!} state={CALM} label="Corvane's map" />}
             </div>
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,var(--color-night)_32%,transparent_80%)]" aria-hidden />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,var(--color-night)_40%,transparent_75%)]" aria-hidden />
             <div className="relative mx-auto w-full max-w-[1480px] px-5 py-16 md:px-10">
               <motion.h1
                 initial={reduce ? false : { opacity: 0, y: 24 }}
