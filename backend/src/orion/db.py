@@ -281,9 +281,36 @@ def get_db() -> DB:
         return _db
 
 
+_MEMO: contextvars.ContextVar[dict | None] = contextvars.ContextVar("orion_memo", default=None)
+
+
+@contextmanager
+def remembered():
+    """A stretch of read-only work (checking an answer's points) where the records can't change: the tenant's
+    version and clock, epoch checkouts and name lookups are read once and remembered until it ends. On a remote
+    database each of those is a round trip, and one answer's checks repeat them hundreds of times. Work started
+    from inside (threads given this context) shares the memo."""
+    token = _MEMO.set({})
+    try:
+        yield
+    finally:
+        _MEMO.reset(token)
+
+
+def memo() -> dict | None:
+    """The memo of the enclosing remembered() block, or None outside one."""
+    return _MEMO.get()
+
+
 def clock(db: DB, t: str) -> str:
     """The tenant's 'now'. Corvane is pinned to a demo moment; live events move it forward a minute at a time."""
-    return db.get(f"orion:{t}:clock") or "2026-10-01T09:00"
+    m = _MEMO.get()
+    if m is not None and ("clock", t) in m:
+        return m[("clock", t)]
+    out = db.get(f"orion:{t}:clock") or "2026-10-01T09:00"
+    if m is not None:
+        m[("clock", t)] = out
+    return out
 
 
 def tick(db: DB, t: str, minutes: int = 1) -> str:
@@ -297,8 +324,17 @@ def tick(db: DB, t: str, minutes: int = 1) -> str:
 
 def version(db: DB, t: str) -> int:
     """Bumped on every write to the org graph; epochs built from an older version are rebuilt."""
-    return int(db.get(f"orion:{t}:version") or 0)
+    m = _MEMO.get()
+    if m is not None and ("version", t) in m:
+        return m[("version", t)]
+    out = int(db.get(f"orion:{t}:version") or 0)
+    if m is not None:
+        m[("version", t)] = out
+    return out
 
 
 def bump(db: DB, t: str) -> int:
+    m = _MEMO.get()
+    if m is not None:
+        m.clear()  # a write inside a remembered block: forget everything
     return db.incr(f"orion:{t}:version")

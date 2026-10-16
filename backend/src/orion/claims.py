@@ -56,8 +56,68 @@ def _uid(db: dbm.DB, graph: str, label: str, ref: str) -> str:
         raise CheckError(str(e), "unsupported") from None
 
 
+_ANY = ("Service", "Person", "Team", "Customer", "Decision", "Project")
+
+
 def _any_uid(db: dbm.DB, graph: str, ref: str) -> str | None:
-    for label in ("Service", "Person", "Team", "Customer", "Decision", "Project"):
+    """The one node `ref` names, whatever it is: what resolve() would give trying each label of _ANY in turn, with
+    each kind of lookup (uid and exact name, nickname, full text) made once for all labels instead of per label."""
+    ref = (ref or "").strip()
+    if not ref:
+        return None
+    m = dbm.memo()
+    if m is not None and ("any", graph, ref) in m:
+        return m[("any", graph, ref)]
+    out = _any_uid_fast(db, graph, ref)
+    if m is not None:
+        m[("any", graph, ref)] = out
+    return out
+
+
+def _any_uid_fast(db: dbm.DB, graph: str, ref: str) -> str | None:
+    org = dbm.org(graph.split(":")[1])
+    rows = db.ro(graph, """MATCH (n) WHERE n.uid = $r OR toLower(n.name) = toLower($r) OR toLower(n.key) = toLower($r)
+                           OR toLower(n.handle) = toLower($r) RETURN n.uid AS uid, labels(n) AS l""", {"r": ref})
+    res = opsm.resolver(db, org)
+    nick = res.resolve(ref)
+    words = " ".join(w + "*" for w in opsm.fold(ref).split() if len(w) > 2)
+    found: list[dict] | None = None
+    here: dict[str, list | None] = {}
+
+    def labels(uid: str) -> list | None:
+        if uid not in here:
+            row = db.one(graph, "MATCH (n {uid: $u}) RETURN labels(n) AS l", {"u": uid})
+            here[uid] = row["l"] if row else None
+        return here[uid]
+
+    by_uid = next((r for r in rows if r["uid"] == ref), None)
+    for label in _ANY:
+        if by_uid:  # a uid of something else is not a name of this
+            if label in by_uid["l"]:
+                return ref
+            continue
+        named = [r["uid"] for r in rows if label in r["l"]]
+        if len(named) == 1:
+            return named[0]
+        hits = [u for u in nick if res.kind.get(u) == label]
+        if len(hits) == 1 and labels(hits[0]) is not None:
+            if label in labels(hits[0]):
+                return hits[0]
+            continue
+        if words:
+            if found is None:
+                found = db.ro(org, """CALL db.idx.fulltext.queryNodes('Alias', $q) YIELD node, score
+                                      MATCH (node)-[:NAMES]->(n) RETURN DISTINCT n.uid AS uid, labels(n)[0] AS l,
+                                      score ORDER BY score DESC LIMIT 4""", {"q": words})
+            mine = [f for f in found if f["l"] == label]
+            if (len(mine) == 1 or (len(mine) > 1 and mine[0]["score"] >= 2 * mine[1]["score"])) \
+                    and label in (labels(mine[0]["uid"]) or []):
+                return mine[0]["uid"]
+    return None
+
+
+def _any_uid_slow(db: dbm.DB, graph: str, ref: str) -> str | None:
+    for label in _ANY:
         try:
             return opsm.resolve(db, graph, label, ref)
         except opsm.ResolveError:

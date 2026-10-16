@@ -78,12 +78,17 @@ _resolvers: dict[tuple[str, int], Resolver] = {}
 def resolver(db: dbm.DB, graph: str) -> Resolver:
     """Names as people write them. Kept in memory until the tenant's records change."""
     parts = graph.split(":")
+    m = dbm.memo()
+    if m is not None and ("resolver", graph) in m:
+        return m[("resolver", graph)]
     key = (graph, dbm.version(db, parts[1]) if len(parts) > 1 else 0)
     if key not in _resolvers:
         rows = db.ro(graph, "MATCH (a:Alias)-[:NAMES]->(n) RETURN a.text AS t, n.uid AS u, labels(n)[0] AS k")
         if len(_resolvers) > 64:
             _resolvers.clear()
         _resolvers[key] = Resolver([(r["t"], r["u"], r["k"]) for r in rows])
+    if m is not None:
+        m[("resolver", graph)] = _resolvers[key]
     return _resolvers[key]
 
 
@@ -94,6 +99,21 @@ LABEL_ALIASES = {"Service": ("Service", "Retired"), "Person": ("Person", "Former
 def resolve(db: dbm.DB, graph: str, label: str, ref: str, res: Resolver | None = None) -> str:
     """A uid, a name, a nickname, a handle or a key -> the uid of exactly one node of that label in `graph`.
     Raises ResolveError when nothing or more than one thing matches."""
+    m = dbm.memo()
+    if m is None:
+        return _resolve(db, graph, label, ref, res)
+    key = ("resolve", graph, label, (ref or "").strip())
+    if key not in m:
+        try:
+            m[key] = _resolve(db, graph, label, ref, res)
+        except ResolveError as e:
+            m[key] = e
+    if isinstance(m[key], ResolveError):
+        raise ResolveError(str(m[key]))
+    return m[key]
+
+
+def _resolve(db: dbm.DB, graph: str, label: str, ref: str, res: Resolver | None = None) -> str:
     ref = (ref or "").strip()
     if not ref:
         raise ResolveError(f"no {label.lower()} given")
@@ -125,7 +145,7 @@ def resolve(db: dbm.DB, graph: str, label: str, ref: str, res: Resolver | None =
                                score ORDER BY score DESC LIMIT 4""", {"q": words})
         found = [f for f in found if f["l"] == label]
         if len(found) == 1 or (len(found) > 1 and found[0]["score"] >= 2 * found[1]["score"]):
-            return resolve(db, graph, label, found[0]["uid"], res)
+            return _resolve(db, graph, label, found[0]["uid"], res)
         if found:
             raise ResolveError(f"no single {label.lower()} matches '{ref}' (did you mean "
                                f"{' or '.join(f['name'] for f in found[:2])}?)")

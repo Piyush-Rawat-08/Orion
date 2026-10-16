@@ -155,9 +155,11 @@ def after_change(db: dbm.DB, t: str, closed: list[str], touched: list[str], sour
                  emit=None) -> list[dict]:
     """The company changed: re-check the answers that relied on what changed, and the watched ones."""
     done: set = set()
-    out = expire_answers(db, t, closed, source_uid, now, emit, done)
-    out += expire_for_nodes(db, t, touched, source_uid, now, emit, done=done)
-    out += recheck_watched(db, t, source_uid, now, emit, done)
+    # nothing below changes the records (it marks answers and tells people), so lookups are made once
+    with dbm.remembered():
+        out = expire_answers(db, t, closed, source_uid, now, emit, done)
+        out += expire_for_nodes(db, t, touched, source_uid, now, emit, done=done)
+        out += recheck_watched(db, t, source_uid, now, emit, done)
     return out
 
 

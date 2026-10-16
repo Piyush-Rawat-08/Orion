@@ -27,8 +27,9 @@ SYSTEM = ("You check one sentence against the database rows it cites. 'supported
 def verify(db: dbm.DB, claims: list[dict], evidence: list[dict], tenant: str, use_llm: bool = True,
            today: bool = False, asof: str | None = None) -> list[dict]:
     by_eid = {e["eid"]: e for e in evidence}
-    # each claim is checked on its own, so they run side by side: on a remote database most of the time is round trips
-    with ThreadPoolExecutor(max_workers=min(6, len(claims) or 1)) as ex:
+    # each claim is checked on its own, so they run side by side: on a remote database most of the time is round trips;
+    # and checking reads nothing that changes while it runs, so lookups the claims repeat are made once
+    with dbm.remembered(), ThreadPoolExecutor(max_workers=min(6, len(claims) or 1)) as ex:
         # each check carries the caller's context, so its queries count toward the answer that asked for it
         jobs = [(contextvars.copy_context(), i, c) for i, c in enumerate(claims)]
         return list(ex.map(lambda j: j[0].run(_one, db, j[1], j[2], by_eid, tenant, use_llm, today, asof), jobs))

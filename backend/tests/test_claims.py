@@ -77,3 +77,20 @@ def test_orphan_and_approver_claims_are_checked_against_what_the_what_if_found(d
     assert r["verdict"] == "verified"
     assert check(db, tenant, kind="count", subject=sso["uid"], measure="approvers", value="4",
                  text="Four teams must agree.")["verdict"] == "verified"
+
+
+def test_one_query_finds_what_the_label_by_label_lookup_finds(db, tenant):
+    from orion import claims
+    from orion import db as dbm
+    from orion import epoch as ep
+
+    g = ep.now(db, tenant)
+    refs = ["sso-legacy", "svc:identity", "Priya Raman", "Billing", "Helio Robotics", "ADR-005", "no such thing", "billng",
+            "old sso"]
+    assert [claims._any_uid(db, g, r) for r in refs] == [claims._any_uid_slow(db, g, r) for r in refs]
+    # inside a remembered block a lookup is made once; a write forgets it
+    with dbm.remembered():
+        first = claims._any_uid(db, g, "sso-legacy")
+        assert dbm.memo()[("any", g, "sso-legacy")] == first
+        dbm.bump(db, tenant)
+        assert dbm.memo() == {}

@@ -17,6 +17,7 @@ Every universe starts as a copy of epoch:<tenant>:now.
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 from orion import db as dbm
@@ -212,6 +213,18 @@ def ensure(db: dbm.DB, tenant: str, on: str = "now", mode: str = "true") -> str:
 
 def checkout(db: dbm.DB, tenant: str, on: str | None = None, mode: str = "true") -> dict:
     """The snapshot record for the company now (on=None) or on a date, building it if the org graph moved."""
+    m = dbm.memo()
+    if m is not None:
+        key = ("checkout", tenant, on, mode)
+        # claims checked side by side ask at the same moment: one builds, the rest wait here, not on the database lock
+        with m.setdefault(("lock", *key), threading.Lock()):
+            if key not in m:
+                m[key] = _checkout(db, tenant, on, mode)
+        return dict(m[key])
+    return _checkout(db, tenant, on, mode)
+
+
+def _checkout(db: dbm.DB, tenant: str, on: str | None, mode: str) -> dict:
     if on is None:
         name, on_date = dbm.epoch(tenant), dbm.clock(db, tenant)
     else:
