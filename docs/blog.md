@@ -47,8 +47,8 @@ afterwards it can tell you exactly how big the blind spot was.
 The live demo is at **https://orion-gamma-six.vercel.app**. A first visit opens on a guided rehearsal of one
 decision, retiring sso-legacy, played live in a copy of the company of your own (nothing you change spoils it for the
 next person). If it says it's waking the API, give it a minute: the API runs on a free host that sleeps. The opening
-states the proposal, one press copies the company, and four scenes follow. Each leads with what it found, and a
-track above the map says which company you're looking at: a copy of today's, a simulated future, or the company
+states the proposal, one press copies the company, and four scenes follow. Each leads with what it found, and the
+bar above it says which company you're looking at: a copy of today's, a simulated future, or the company
 after a real update.
 
 1. **What breaks.** Orion copies the company and switches sso-legacy off in the copy. The failure walks out one

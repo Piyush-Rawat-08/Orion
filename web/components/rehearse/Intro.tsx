@@ -687,7 +687,7 @@ export default function Intro({
       key="intro"
       exit={{ opacity: 0 }}
       transition={{ duration: 0.35 }}
-      className="relative flex flex-1 items-center overflow-hidden"
+      className="relative flex flex-[1_0_auto] items-center overflow-hidden"
       aria-label="Orion"
     >
       <Starfield warp={warp} />

@@ -555,8 +555,12 @@ export default function Stage() {
             <p className="text-[14px] text-muted">
               Rehearsing: <span className="text-ink">retire {human(GOAL.service)}</span>
               <span className="hidden sm:inline"> · Corvane · {replay ? "recorded run" : "simulation"}</span>
+              <span className="hidden text-faint md:inline">
+                {" "}
+                · on screen:{" "}
+                {scene === "cascade" ? "a copy of today's company" : scene === "futures" ? "simulated plans, none of it done" : "the company after the update"}
+              </span>
             </p>
-            <CompanyTrack at={scene === "cascade" ? 0 : scene === "futures" ? 1 : 2} />
             <details className="group relative ml-auto text-[12.5px]">
               <summary className="cursor-pointer list-none text-faint hover:text-muted [&::-webkit-details-marker]:hidden">
                 Technical details <span className="inline-block transition-transform group-open:rotate-180">▾</span>
@@ -886,30 +890,6 @@ function blastHeadline(diff: Diff, hidden: string | null) {
   }
   const n = diff.broken.length;
   return n ? `Retiring it now hits ${plural(n, "system")}.` : "Retiring it now hits nothing in the model.";
-}
-
-/** Which company is on screen: today's (a copy of it), a simulated future, or the company after a real update. */
-function CompanyTrack({ at }: { at: number }) {
-  const items = ["Today's company", "Simulated plan", "Updated company"];
-  return (
-    <ol className="flex items-center gap-2 text-[13px]" aria-label="Which company is on screen">
-      {items.map((x, i) => (
-        <li key={x} className="flex items-center gap-2">
-          {i > 0 && (
-            <svg width="14" height="8" viewBox="0 0 14 8" className={i <= at ? "text-ember/70" : "text-rule-strong"} aria-hidden>
-              <path d="M0 4h12M9 1l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.3" />
-            </svg>
-          )}
-          <span
-            aria-current={i === at ? "true" : undefined}
-            className={`rounded-full px-2.5 py-0.5 transition-colors ${i === at ? "bg-ember/15 text-ink ring-1 ring-ember/60" : i < at ? "text-muted" : "text-faint"}`}
-          >
-            {x}
-          </span>
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 /** The scene's result in numbers, under its headline; with `was`, against the earlier rehearsal. */

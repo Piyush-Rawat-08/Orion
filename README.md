@@ -9,7 +9,7 @@ Live: **https://orion-gamma-six.vercel.app**. A first visit opens on the guided 
 live in your own copy of Corvane (a made-up company; every person, system and customer is synthetic):
 
 The opening states the proposal: retire the legacy authentication service (`sso-legacy`). One press copies the
-company and the story runs. Each scene leads with what it found, and a track above the map says which company is
+company and the story runs. Each scene leads with what it found, and the bar above it says which company is
 on screen: a copy of today's, a simulated future, or the company after a real update.
 
 1. **What breaks.** "An undocumented dependency puts Billing in the blast radius." In the copy, the failure walks
