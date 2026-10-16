@@ -471,7 +471,7 @@ export default function Stage() {
           {replay ? (
             <span className="flex items-center gap-2 rounded-full border border-warn/60 bg-warn/10 px-3 py-1 text-[12px] text-warn" role="status">
               <span className="size-1.5 rounded-full bg-warn" aria-hidden />
-              Replay of a recorded run{replay.at ? `, ${fmtDate(replay.at)}` : ""}
+              Replay<span className="hidden md:inline"> of a recorded run{replay.at ? `, ${fmtDate(replay.at)}` : ""}</span>
             </span>
           ) : (
             <span className="hidden text-[12px] text-faint md:inline" title="Corvane is a made-up company: every person, system and customer is synthetic">
@@ -479,7 +479,8 @@ export default function Stage() {
             </span>
           )}
           <Link href="/" onClick={seen} className="btn btn-ghost h-8 px-2.5 text-[13px]">
-            Explore the workspace
+            <span className="hidden sm:inline">Explore the workspace</span>
+            <span className="sm:hidden">Workspace</span>
           </Link>
         </div>
       </header>
@@ -653,7 +654,10 @@ export default function Stage() {
                       </motion.div>
                     )}
                     {map ? (
+                      // phones: the map keeps a readable size and scrolls sideways
+                      <div className="-mx-3 overflow-x-auto px-3 md:mx-0 md:overflow-visible md:px-0">
                       <motion.div
+                        className="min-w-[640px] md:min-w-0"
                         key={scene === "change" ? "today" : "copy"}
                         layoutId={scene === "change" ? "today" : undefined}
                         initial={scene === "change" ? false : { opacity: 0, scale: 0.985 }}
@@ -668,6 +672,7 @@ export default function Stage() {
                         onEdge={scene === "cascade" && cascadeDone ? () => void openSource() : undefined}
                       />
                       </motion.div>
+                      </div>
                     ) : (
                       <div className="grid aspect-[1000/540] place-items-center text-[14px] text-muted">
                         {error ? null : <Spinner />}
