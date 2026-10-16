@@ -59,6 +59,13 @@ const I = {
       <path d="M10.6 4.6l1.5 1.5 2.6-2.9" />
     </>
   ),
+  // a play button inside a dashed frame: a run-through, not the real thing
+  rehearse: (
+    <>
+      <path d="M2.4 5.2V3.6c0-.7.5-1.2 1.2-1.2h1.6M10.8 2.4h1.6c.7 0 1.2.5 1.2 1.2v1.6M13.6 10.8v1.6c0 .7-.5 1.2-1.2 1.2h-1.6M5.2 13.6H3.6c-.7 0-1.2-.5-1.2-1.2v-1.6" />
+      <path d="M6.6 5.6v4.8l3.9-2.4z" fill="currentColor" strokeWidth="1" />
+    </>
+  ),
   inbox: (
     <>
       <path d="M2.4 9.4l1.8-5.6h7.6l1.8 5.6v2.8c0 .6-.4 1-1 1H3.4c-.6 0-1-.4-1-1z" />
@@ -73,6 +80,7 @@ const I = {
 // something, so it waits there and comes forward on its own when an answer goes out of date. Titles and descriptions
 // are plain words: nobody should need to know what a fork, a graph or a query is to use a screen.
 export const NAV = [
+  { href: "/rehearse", label: "Rehearse", key: "R", icon: I.rehearse, group: "lead", more: false, title: "Rehearse a shutdown", sub: "Break the company in a parallel universe: retire a system on a copy, watch what breaks, find a safer sequence." },
   { href: "/", label: "Ask", key: "1", icon: I.brain, group: "lead", more: false, title: "Ask", sub: "Ask anything about Corvane. Every point in the answer is checked against the records." },
   { href: "/multiverse", label: "What-ifs", key: "2", icon: I.multiverse, group: "lead", more: false, title: "What-ifs", sub: "Try a change on a copy of the company and see what it would affect. Nothing real changes." },
   { href: "/hindsight", label: "Hindsight", key: "9", icon: I.hindsight, group: "lead", more: false, title: "Hindsight", sub: "Would Orion have caught it? Each incident replayed against the decision that led to it." },

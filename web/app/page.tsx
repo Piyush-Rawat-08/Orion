@@ -9,6 +9,7 @@ import TurnView from "@/components/brain/TurnView";
 import LazyGraphCanvas from "@/components/graph/GraphCanvasLazy";
 import type { EdgeGraph, Trail } from "@/components/graph/GraphCanvas";
 import { CountUp, EASE, Rise, WordReveal } from "@/components/motion";
+import { SEEN_KEY } from "@/lib/rehearsal";
 import { Handle, Pane, Split, useMedia } from "@/components/Split";
 import { AgentsOff, ErrorNote, Kbd, NodeTypeLegend } from "@/components/ui";
 import { useFetch } from "@/lib/hooks";
@@ -35,6 +36,17 @@ export default function BrainPage() {
     const t = setInterval(() => tick((x) => x + 1), 1000);
     return () => clearInterval(t);
   }, [awake]);
+  const [gate, setGate] = useState<"check" | "stay">("check");
+  useEffect(() => {
+    let seen = true;
+    try {
+      seen = !!localStorage.getItem(SEEN_KEY);
+    } catch {
+      /* no storage: stay */
+    }
+    if (seen) setGate("stay");
+    else router.replace("/rehearse");
+  }, [router]);
   const [draft, setDraft] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -128,6 +140,9 @@ export default function BrainPage() {
     return () => window.removeEventListener("keydown", esc);
   }, [sheet]);
 
+  // a first visit opens on the rehearsal: the decision played out is the fastest way to see what Orion is for
+  if (gate !== "stay") return <div className="h-full bg-night" />;
+
   const conversation = (
     <section aria-label="Conversation" className="flex h-full min-h-0 flex-col">
       <div
@@ -165,16 +180,12 @@ export default function BrainPage() {
           </Rise>
           <Rise delay={0.24}>
             <div className="mt-5 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-primary h-9 gap-2 rounded-full pl-2 pr-3.5"
-                onClick={() => window.dispatchEvent(new Event("orion:start"))}
-              >
+              <Link href="/rehearse" className="btn btn-primary h-9 gap-2 rounded-full pl-2 pr-3.5">
                 <span className="grid size-6 place-items-center rounded-full bg-night/15" aria-hidden>
                   <svg width="11" height="11" viewBox="0 0 12 12"><path d="M3.5 2.2v7.6L10 6 3.5 2.2Z" fill="currentColor" /></svg>
                 </span>
-                Start here
-              </button>
+                Rehearse a shutdown
+              </Link>
               <button
                 type="button"
                 className="btn h-9 rounded-full px-3.5"

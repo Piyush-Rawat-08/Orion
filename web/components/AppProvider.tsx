@@ -77,7 +77,8 @@ interface Ctx {
   tenant: Tenant | null;
   refreshTenant: () => void;
   /** throw this browser's copy of Corvane away and start again on a fresh one */
-  startOver: () => void;
+  /** leave this copy and start on a fresh one, landing on `to` (default the Ask screen) */
+  startOver: (to?: string) => void;
 
   turns: Turn[];
   asking: boolean;
@@ -319,7 +320,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const made = await post<Tenant>("/api/demo", key ? { key } : {});
       try {
         localStorage.setItem(DEMO_KEY, made.id);
-        localStorage.removeItem("orion.start"); // a fresh copy: the walkthrough starts again too
       } catch {
         /* ignore */
       }
@@ -328,16 +328,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })().catch(shared); // an older server, or no copy could be made: the shared company
   }, [awake, refreshTenant]);
 
-  const startOver = useCallback(() => {
+  const startOver = useCallback((to?: unknown) => {
     const done = () => {
       try {
         localStorage.removeItem(DEMO_KEY);
         localStorage.removeItem(DEMO_KEY + ".key");
-        localStorage.removeItem("orion.start");
       } catch {
         /* ignore */
       }
-      window.location.assign("/");
+      window.location.assign(typeof to === "string" ? to : "/");
     };
     if (tenant?.personal) post("/leave", {}).then(done, done);
     else done();

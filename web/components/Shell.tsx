@@ -8,7 +8,6 @@ import { useApp } from "./AppProvider";
 import BlameDrawer from "./BlameDrawer";
 import CommandPalette from "./CommandPalette";
 import PersonSwitcher from "./PersonSwitcher";
-import StartHere from "./StartHere";
 import { Kbd } from "./ui";
 import { NAV } from "./nav";
 import { SPRING } from "./motion";
@@ -94,7 +93,7 @@ function ThemeSwitch({ wide }: { wide: boolean }) {
 }
 
 /** The screens a phone gets a tab for; the rest sit behind More. */
-const TABS = ["/", "/multiverse", "/hindsight", "/proof"];
+const TABS = ["/rehearse", "/", "/multiverse", "/hindsight"];
 
 /** Phones: five tabs at the bottom, 56px tall plus the home-indicator inset. */
 function TabBar({ current, unread, onMore, moreOpen }: { current: string; unread: number; onMore: () => void; moreOpen: boolean }) {
@@ -185,7 +184,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         e.preventDefault();
         setPalette((v) => !v);
       } else if (e.altKey && !e.metaKey && !e.ctrlKey) {
-        const n = NAV.find((x) => e.code === `Digit${x.key}`);
+        const n = NAV.find((x) => e.code === `Digit${x.key}` || e.code === `Key${x.key}`);
         if (n) {
           e.preventDefault();
           router.push(n.href);
@@ -227,6 +226,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [moreSheet]);
+
+  // the guided rehearsal is a stage: the whole screen, no rail or top bar (it has its own way back)
+  if (path.startsWith("/rehearse"))
+    return (
+      <MotionConfig reducedMotion="user">
+        <main key={switches} className="h-dvh">
+          {hydrated ? children : null}
+        </main>
+        <BlameDrawer />
+      </MotionConfig>
+    );
 
   return (
     <MotionConfig reducedMotion="user">
@@ -494,7 +504,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </motion.div>
         )}
       </AnimatePresence>
-      <StartHere />
       <BlameDrawer />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>
