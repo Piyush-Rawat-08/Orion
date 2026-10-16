@@ -1,13 +1,16 @@
 "use client";
 
 // The guided rehearsal: one consequential decision, played out on the real API in the visitor's own copy of
-// Corvane. Four scenes on one stage, with the decision and the map in view throughout:
+// Corvane. The introduction states the proposal; one press copies the company and the story runs:
 //
-//   The change       retire sso-legacy, on a readable map of everything that relies on it
-//   The consequences a full copy of the company is made and the failure walks out, column by column
-//   Other futures    the safe-path search's explored copies, as cards on its tree; the chosen line stays lit
-//   New evidence     a message lands in #billing, a dependency closes, the earlier answer goes out of date,
-//                    and the decision is rehearsed again on the changed company
+//   What breaks      the failure walks out from sso-legacy in the copy, column by column, to the customers
+//   A safer plan     the safe-path search's explored copies, as cards on its tree; retire now against prepare first
+//   New evidence     one step of the plan is reported done in #billing: a dependency closes, the earlier answer
+//                    goes out of date, and the shutdown is rehearsed again on the updated company
+//   The decision     whether it can be retired now, and what remains if not
+//
+// Each scene leads with what it found. A track above the stage says which company is on screen: a copy of today's,
+// a simulated future, or the company after the real update.
 //
 // Every number on screen comes from the run. When the API is asleep or a step fails, a recorded run can be
 // played instead; it says Replay at the top for as long as it plays.
@@ -32,7 +35,6 @@ import {
   type Recording,
   buildMap,
   CALM,
-  DECISION,
   GOAL,
   hitLine,
   human,
@@ -43,19 +45,20 @@ import {
   stateOfDiff,
   stateOfFuture,
   tally,
+  waitsOn,
 } from "@/lib/rehearsal";
 import Futures, { type Future } from "./Futures";
 import Intro from "./Intro";
 import StageMap from "./StageMap";
 
-type Scene = "intro" | "change" | "cascade" | "futures" | "evidence" | "finale";
+type Scene = "intro" | "cascade" | "futures" | "evidence" | "finale";
 const STEPS: { scene: Scene; label: string }[] = [
-  { scene: "change", label: "The change" },
-  { scene: "cascade", label: "The consequences" },
-  { scene: "futures", label: "Other futures" },
+  { scene: "cascade", label: "What breaks" },
+  { scene: "futures", label: "A safer plan" },
   { scene: "evidence", label: "New evidence" },
+  { scene: "finale", label: "The decision" },
 ];
-const ORDER: Scene[] = ["intro", "change", "cascade", "futures", "evidence", "finale"];
+const ORDER: Scene[] = ["intro", "cascade", "futures", "evidence", "finale"];
 
 type Ev = { event: string; data: Record<string, unknown>; t?: number };
 type Forked = { uid: string; copy_ms: number; apply_ms: number; ms: number; diff: Diff };
@@ -172,27 +175,28 @@ export default function Stage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // scene 2
+  // scene 1
   const [before, setBefore] = useState<Forked | null>(null);
   const [reveal, setReveal] = useState(-1);
   const [source, setSource] = useState<Record<string, unknown> | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  // scene 3
+  // scene 2
   const [futures, setFutures] = useState<Future[]>([]);
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [rejected, setRejected] = useState<{ label: string; why: string }[]>([]);
   const [planT0, setPlanT0] = useState(0);
   const [planStatus, setPlanStatus] = useState("Checking out today's company");
   const [now, setNow] = useState(0);
-  // scene 4
-  const [news, setNews] = useState<{ started: boolean; received: boolean; reader?: string; closed: { subject: string; object: string }[]; opened: { subject: string; object: string }[]; expired: { broken: number; total: number } | null; done: boolean }>({
-    started: false,
-    received: false,
-    closed: [],
-    opened: [],
-    expired: null,
-    done: false,
-  });
+  // scene 3
+  const [news, setNews] = useState<{
+    started: boolean;
+    received: boolean;
+    reader?: string;
+    closed: { subject: string; object: string }[];
+    opened: { subject: string; object: string }[];
+    expired: { broken: number; total: number } | null;
+    done: boolean;
+  }>({ started: false, received: false, closed: [], opened: [], expired: null, done: false });
   const [after, setAfter] = useState<Forked | null>(null);
   const [answer, setAnswer] = useState<{ before: AnswerLite | null; after: AnswerLite | null }>({ before: null, after: null });
 
@@ -240,15 +244,15 @@ export default function Stage() {
   // this copy already took Tomasz's message (the Inbox demo was played here): the story has already happened
   const spent = !!map && !replay && !map.edges.some((e) => e.dependent === "invoice-render" && e.dependency === GOAL.service);
 
-  // scene 1 -> 2: the copy
+  // the opening's one action: copy the company and switch the system off in the copy
   const rehearse = async () => {
     setBusy(true);
     setError(null);
+    setBefore(null);
+    setReveal(-1);
+    go("cascade");
     try {
-      const f = await run.fork("before");
-      setBefore(f);
-      setReveal(-1);
-      go("cascade");
+      setBefore(await run.fork("before"));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -256,7 +260,7 @@ export default function Stage() {
     }
   };
 
-  // scene 2: the failure walks out, a column at a time, then reaches the customers
+  // scene 1: the failure walks out, a column at a time, then reaches the customers
   const lastCol = map ? Math.max(...map.nodes.filter((n) => n.role !== "successor").map((n) => n.col)) : 0;
   useEffect(() => {
     if (scene !== "cascade" || !before) return;
@@ -264,8 +268,9 @@ export default function Stage() {
       setReveal(Infinity);
       return;
     }
-    const ts = Array.from({ length: lastCol + 2 }, (_, c) => setTimeout(() => setReveal(c), 900 + c * 900));
-    const end = setTimeout(() => setReveal(Infinity), 900 + (lastCol + 2) * 900);
+    // a skipped walk stays finished
+    const ts = Array.from({ length: lastCol + 2 }, (_, c) => setTimeout(() => setReveal((r) => (r === Infinity ? r : c)), 700 + c * 850));
+    const end = setTimeout(() => setReveal(Infinity), 700 + (lastCol + 2) * 850);
     return () => {
       ts.forEach(clearTimeout);
       clearTimeout(end);
@@ -278,15 +283,22 @@ export default function Stage() {
     if (!source && ghost?.fact) setSource(await run.source(ghost.fact).catch(() => null));
   };
 
-  // scene 3: the search
+  // scene 2: the search. A finished search is kept; one that failed halfway can be started again.
   const abort = useRef<AbortController | null>(null);
-  const explore = async () => {
+  const searching = useRef(false);
+  const explore = async (restart = false) => {
     go("futures");
-    if (futures.length) return;
-    setPlanT0(performance.now());
-    setError(null);
+    if (plan || (searching.current && !restart)) return;
+    abort.current?.abort();
     const ac = new AbortController();
     abort.current = ac;
+    searching.current = true;
+    setFutures([]);
+    setRejected([]);
+    setPlanStatus("Checking out today's company");
+    setPlanT0(performance.now());
+    setError(null);
+    let finished = false;
     try {
       await run.stream(
         "plan",
@@ -295,13 +307,18 @@ export default function Stage() {
           if (e.event === "status") setPlanStatus(planWords(String(d.text ?? "")));
           else if (e.event === "universe") setFutures((xs) => (xs.some((x) => x.id === d.id) ? xs : [...xs, d as unknown as Future]));
           else if (e.event === "rejected") setRejected((xs) => [...xs, { label: String(d.label), why: String(d.why) }]);
-          else if (e.event === "done" && d.result) setPlan(d.result as PlanResult);
-          else if (e.event === "error") setError(String(d.text ?? "The search failed"));
+          else if (e.event === "done" && d.result) {
+            finished = true;
+            setPlan(d.result as PlanResult);
+          } else if (e.event === "error") setError(String(d.text ?? "The search failed"));
         },
         ac.signal,
       );
+      if (!finished && !ac.signal.aborted) setError((x) => x ?? "The search ended without a result.");
     } catch (e) {
       if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally {
+      if (abort.current === ac) searching.current = false;
     }
   };
   useEffect(() => () => abort.current?.abort(), []);
@@ -311,7 +328,7 @@ export default function Stage() {
     return () => clearInterval(id);
   }, [scene, plan]);
 
-  // scene 4: the message, then the decision rehearsed again
+  // scene 3: the message, then the decision rehearsed again
   const deliver = async () => {
     setNews((n) => ({ ...n, started: true }));
     setError(null);
@@ -325,8 +342,7 @@ export default function Stage() {
         else if (e.event === "status") setNews((n) => ({ ...n, received: true }));
         else if (e.event === "fact_closed")
           setNews((n) => ({ ...n, received: true, closed: [...n.closed, { subject: String(d.subject), object: String(d.object) }] }));
-        else if (e.event === "fact_opened")
-          setNews((n) => ({ ...n, opened: [...n.opened, { subject: String(d.subject), object: String(d.object) }] }));
+        else if (e.event === "fact_opened") setNews((n) => ({ ...n, opened: [...n.opened, { subject: String(d.subject), object: String(d.object) }] }));
         else if (e.event === "answer_expired")
           setNews((n) => ({ ...n, expired: { broken: (d.broken_claims as string[])?.length ?? 0, total: Number(d.total_claims ?? 0) } }));
         else if (e.event === "error") setError(String(d.text));
@@ -378,11 +394,12 @@ export default function Stage() {
   }, []);
   useEffect(() => {
     if (scene !== "intro" || (!map && !replay)) return;
-    primary.current = () => go("change");
+    primary.current = () => void rehearse();
     return () => {
       primary.current = null;
     };
-  }, [scene, map, replay, go]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, map, replay]);
 
   const seen = () => {
     try {
@@ -392,11 +409,19 @@ export default function Stage() {
     }
   };
 
-  // ?replay opens on the recorded run (for a presentation over a bad connection); it still says Replay throughout
+  // a recorded run, clearly labelled. Started from a failed step or the waiting screen, it plays from the top;
+  // ?replay opens it on the introduction (for a presentation over a bad connection)
+  const [autostart, setAutostart] = useState(false);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has("replay")) void playRecording(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (!autostart || !replay) return;
+    setAutostart(false);
+    void rehearse();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart, replay]);
 
   const playRecording = async (start = true) => {
     setError(null);
@@ -404,6 +429,7 @@ export default function Stage() {
       const r = await fetch("/rehearsal-replay.json", { cache: "force-cache" });
       const rec = (await r.json()) as Recording;
       abort.current?.abort();
+      searching.current = false;
       setBefore(null);
       setFutures([]);
       setPlan(null);
@@ -413,11 +439,44 @@ export default function Stage() {
       setSource(null);
       setSourceOpen(false);
       setReplay(rec);
-      if (start) go("change");
+      if (start) setAutostart(true);
     } catch {
       setError("The recorded run couldn't be loaded.");
     }
   };
+
+  // ------------------------------------------------------------------ what each scene says
+
+  const shown = scene === "evidence" && after ? after : before;
+  const plannedMoves = plan ? plan.steps.length - 1 : 0;
+  const headline = (() => {
+    if (scene === "cascade") {
+      if (!before) return { h: "Copying today's company", sub: "A full copy of the company graph, so the shutdown can be tested without touching anything real." };
+      if (!cascadeDone) return { h: `Following the failure out from ${human(GOAL.service)}`, sub: "Orion walks every dependency in the copy, one step at a time." };
+      return { h: blastHeadline(before.diff, ghost?.dependent ?? null), sub: null };
+    }
+    if (scene === "futures") {
+      if (!plan) return { h: "Looking for a safer sequence", sub: "Each future is a full copy of the company with preparation applied. None of it has happened." };
+      const clear = !plan.best.broken.length && !plan.best.customers;
+      return {
+        h: clear ? `There is a safer sequence: ${plural(plannedMoves, "move")}, then retire.` : `Preparing first cuts the risk from ${plan.baseline.risk} to ${plan.best.risk}.`,
+        sub: "A simulated outcome. None of these moves has happened yet.",
+      };
+    }
+    if (scene === "evidence") {
+      if (!news.started)
+        return { h: "One step of the plan has been reported complete.", sub: "Orion checks the update against the company graph and recalculates what remains." };
+      if (!news.done || !ta) return { h: "Checking the update", sub: "Reading the message, updating the graph, and re-checking everything that relied on it." };
+      const left = ta.stop + ta.slow;
+      return {
+        h: left
+          ? `A new fact changed the answer: ${plural(left, "system")} and ${plural(nCustAfter, "customer")} still at risk.`
+          : "A new fact changed the answer: nothing is at risk now.",
+        sub: null,
+      };
+    }
+    return { h: "", sub: null };
+  })();
 
   // ------------------------------------------------------------------ render
 
@@ -430,6 +489,8 @@ export default function Stage() {
   }, [awake]);
   const waited = Math.round((Date.now() - since) / 1000);
 
+  const retry = scene === "cascade" && !before ? rehearse : scene === "futures" && !plan ? () => explore(true) : null;
+
   return (
     <div ref={scroller} className="relative flex h-dvh flex-col overflow-y-auto bg-night">
       {/* top bar */}
@@ -441,9 +502,9 @@ export default function Stage() {
         {scene !== "intro" && (
           <ol className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto md:justify-center md:gap-2" aria-label="Rehearsal">
             {STEPS.map((s, i) => {
-              const done = ORDER.indexOf(s.scene) < ORDER.indexOf(scene) || scene === "finale";
+              const done = ORDER.indexOf(s.scene) < ORDER.indexOf(scene);
               const here = s.scene === scene;
-              const can = ORDER.indexOf(s.scene) <= reached && s.scene !== "change";
+              const can = ORDER.indexOf(s.scene) <= reached;
               return (
                 <li key={s.scene} className="flex shrink-0 items-center gap-1 md:gap-2">
                   {i > 0 && <span className={`h-px w-4 md:w-8 ${done || here ? "bg-ember/70" : "bg-rule"}`} aria-hidden />}
@@ -475,8 +536,9 @@ export default function Stage() {
               Replay<span className="hidden md:inline"> of a recorded run{replay.at ? `, ${fmtDate(replay.at)}` : ""}</span>
             </span>
           ) : (
-            <span className="hidden text-[12px] text-faint md:inline" title="Corvane is a made-up company: every person, system and customer is synthetic">
-              Corvane · synthetic demo company
+            <span className="hidden items-center gap-2 text-[12px] text-muted md:flex" title="Every step calls the API and runs on FalkorDB">
+              <span className="size-1.5 rounded-full bg-ok" aria-hidden />
+              Live
             </span>
           )}
           <Link href="/" onClick={seen} className="btn btn-ghost h-8 px-2.5 text-[13px]">
@@ -486,14 +548,56 @@ export default function Stage() {
         </div>
       </header>
 
-      {/* the decision, in view through every scene */}
+      {/* what is being rehearsed, which company is on screen, and the technical details for whoever wants them */}
+      {scene !== "intro" && (
+        <div className="mx-auto w-full max-w-[1480px] px-4 pt-4 md:px-8">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-rule pb-3">
+            <p className="text-[14px] text-muted">
+              Rehearsing: <span className="text-ink">retire {human(GOAL.service)}</span>
+              <span className="hidden sm:inline"> · Corvane · {replay ? "recorded run" : "simulation"}</span>
+            </p>
+            <CompanyTrack at={scene === "cascade" ? 0 : scene === "futures" ? 1 : 2} />
+            <details className="group relative ml-auto text-[12.5px]">
+              <summary className="cursor-pointer list-none text-faint hover:text-muted [&::-webkit-details-marker]:hidden">
+                Technical details <span className="inline-block transition-transform group-open:rotate-180">▾</span>
+              </summary>
+              <div className="mono absolute right-0 z-20 mt-2 w-[min(340px,90vw)] space-y-1 rounded-lg border border-rule bg-panel p-3 text-[12px] leading-relaxed text-muted shadow-float">
+                <p>
+                  op <span className="text-ink">{GOAL.op}</span> · service <span className="text-ink">{GOAL.service}</span>
+                </p>
+                <p>tenant {replay ? replay.tenant : tenant?.id ?? currentTenant()}</p>
+                {shown && (
+                  <p>
+                    universe {shown.uid} · copy {fmtMs(shown.copy_ms)} · apply {fmtMs(shown.apply_ms)} · total {fmtMs(shown.ms)}
+                  </p>
+                )}
+                {plan && (
+                  <p>
+                    search: {plan.explored} copies in {fmtMs(plan.ms)} · verdict {plan.verdict}
+                  </p>
+                )}
+                {news.reader && <p>message read by {news.reader === "rules" ? "sentence rules (model too slow)" : "the model"}</p>}
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {/* the result of the scene: the biggest thing on screen */}
       {scene !== "intro" && scene !== "finale" && (
-        <section className="mx-auto w-full max-w-[1480px] px-4 pb-2 pt-6 md:px-8 md:pt-8">
-          <p className="text-[14px] text-muted">The decision</p>
-          <h1 className="heading mt-1 text-[clamp(2rem,4.2vw,3.5rem)] leading-[1.02] tracking-[-0.03em]">{DECISION}</h1>
-          <p className="mono mt-2 text-[13px] text-faint">
-            {GOAL.service} · {GOAL.op} · in {tenant?.personal ? "your own copy of Corvane" : "Corvane"}
-          </p>
+        <section className="mx-auto w-full max-w-[1480px] px-4 pb-1 pt-5 md:px-8">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={headline.h} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.4, ease: EASE }}>
+              <h1 className="heading max-w-[34ch] text-[clamp(1.7rem,2.7vw,2.7rem)] leading-[1.08] tracking-[-0.03em]">{headline.h}</h1>
+              {scene === "cascade" && cascadeDone && before ? (
+                <ResultLine stop={t.stop} slow={t.slow} customers={nCust} />
+              ) : scene === "evidence" && news.done && ta ? (
+                <ResultLine stop={ta.stop} slow={ta.slow} customers={nCustAfter} was={{ stop: t.stop, slow: t.slow, customers: nCust }} />
+              ) : headline.sub ? (
+                <p className="mt-2 max-w-[70ch] text-[16px] leading-snug text-muted">{headline.sub}</p>
+              ) : null}
+            </motion.div>
+          </AnimatePresence>
         </section>
       )}
 
@@ -506,7 +610,9 @@ export default function Stage() {
             awake={awake}
             replay={!!replay}
             waited={waited}
-            onStart={() => go("change")}
+            spent={spent}
+            onFresh={() => startOver("/rehearse")}
+            onStart={() => void rehearse()}
             onReplay={() => void playRecording()}
             seen={seen}
           />
@@ -530,7 +636,7 @@ export default function Stage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="mx-auto grid w-full max-w-[1480px] flex-1 gap-6 px-4 pb-10 pt-4 md:px-8 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-10"
+            className="mx-auto grid w-full max-w-[1480px] flex-1 gap-6 px-4 pb-10 pt-4 md:px-8 xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-8"
           >
             {/* the stage */}
             <section className="min-w-0" aria-label="Stage">
@@ -540,263 +646,224 @@ export default function Stage() {
                 ) : (
                   <div className="grid min-h-[420px] place-items-center rounded-2xl border border-dashed border-rule-strong">
                     <p className="flex items-center gap-2.5 text-[15px] text-muted">
-                      <Spinner size={13} /> {planStatus}
+                      {!error && <Spinner size={13} />} {error ? "The search stopped." : planStatus}
                     </p>
                   </div>
                 )
               ) : (
-                <div className="relative">
-                  <motion.div
-                    layout
-                    className={`relative rounded-2xl border bg-panel p-3 md:p-5 ${scene === "change" ? "border-rule" : "border-ember/40 shadow-[0_40px_120px_-60px_rgb(255_107_53/0.45)]"}`}
-                  >
-                    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-                      {scene === "change" ? (
-                        <span className="text-muted">Corvane today: everything that relies on {GOAL.service}, and who uses it</span>
-                      ) : (
-                        <>
-                          <span className="flex items-center gap-1.5 text-ember">
-                            <span className="size-1.5 rounded-full bg-ember" aria-hidden />
-                            Rehearsal copy
-                          </span>
-                          {(scene === "evidence" && after ? after : before) && (
-                            <span className="mono text-faint">
-                              universe {(scene === "evidence" && after ? after : before)!.uid} · copied in{" "}
-                              {fmtMs((scene === "evidence" && after ? after : before)!.copy_ms)}
-                            </span>
-                          )}
-                          <span className="ml-auto rounded border border-rule px-1.5 py-px text-[11.5px] text-muted" title="Computed by walking the copied graph; not a measured outage">
-                            modelled impact
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    {map && scene !== "change" && (
-                      // the company as it is, shrunk into the corner: a faint reference while the copy takes the stage
+                <div className="relative rounded-2xl border border-ember/40 bg-panel p-3 shadow-[0_40px_120px_-60px_rgb(255_107_53/0.45)] md:p-4">
+                  <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+                    <span className="flex items-center gap-1.5 text-ember">
+                      <span className="size-1.5 rounded-full bg-ember" aria-hidden />
+                      Simulation
+                    </span>
+                    <span className="text-muted">
+                      {scene === "cascade"
+                        ? `A copy of today's company with ${human(GOAL.service)} retired`
+                        : news.closed.length || after
+                          ? `The updated company with ${human(GOAL.service)} retired`
+                          : `Retire now, as rehearsed before the update`}
+                    </span>
+                    <span
+                      className="ml-auto rounded border border-rule px-1.5 py-px text-[11.5px] text-muted"
+                      title="Computed by walking the copied graph; not a measured outage"
+                    >
+                      modelled impact
+                    </span>
+                  </div>
+                  {map && scene === "cascade" && (
+                    // the company as it is, in the corner: a faint reference while the copy takes the stage
+                    <motion.div
+                      initial={reduce ? false : { opacity: 0, scale: 1.4, x: 40, y: 30 }}
+                      animate={{ opacity: 0.85, scale: 1, x: 0, y: 0 }}
+                      transition={{ duration: 0.9, ease: EASE, delay: 0.2 }}
+                      className="absolute left-4 top-10 z-[1] hidden w-[17%] origin-top-left rounded-lg border border-rule bg-night/90 p-1.5 md:block"
+                    >
+                      <p className="px-1 text-[11.5px] text-muted">Today&apos;s company · untouched</p>
+                      <StageMap map={map} state={CALM} mini label="Today's company, untouched" />
+                    </motion.div>
+                  )}
+                  {map ? (
+                    // phones: the map keeps a readable size and scrolls sideways; larger screens: it fits the viewport's height
+                    <div className="-mx-3 overflow-x-auto px-3 md:mx-0 md:overflow-visible md:px-0">
                       <motion.div
-                        layoutId="today"
-                        transition={{ duration: 0.9, ease: EASE }}
-                        className="absolute left-4 top-11 z-[1] hidden w-[19%] rounded-lg border border-rule bg-night/90 p-1.5 opacity-80 md:block"
-                      >
-                        <p className="px-1 text-[11.5px] text-muted">Corvane today · untouched</p>
-                        <StageMap map={map} state={CALM} mini label="Corvane today, untouched" />
-                      </motion.div>
-                    )}
-                    {map ? (
-                      // phones: the map keeps a readable size and scrolls sideways
-                      <div className="-mx-3 overflow-x-auto px-3 md:mx-0 md:overflow-visible md:px-0">
-                      <motion.div
-                        className="min-w-[640px] md:min-w-0"
-                        key={scene === "change" ? "today" : "copy"}
-                        layoutId={scene === "change" ? "today" : undefined}
-                        initial={scene === "change" ? false : { opacity: 0, scale: 0.985 }}
+                        className="relative mx-auto min-w-[640px] md:min-w-0 md:max-w-[calc((100dvh_-_330px)_*_1.85)]"
+                        initial={reduce ? false : { opacity: 0, scale: 0.985 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.7, ease: EASE, delay: scene === "change" ? 0 : 0.25 }}
+                        transition={{ duration: 0.7, ease: EASE }}
                       >
-                      <StageMap
-                        map={map}
-                        state={scene === "change" ? CALM : scene === "evidence" ? (news.closed.length || after ? afterState : beforeState) : beforeState}
-                        reveal={scene === "cascade" ? reveal : Infinity}
-                        focus={scene === "cascade" && cascadeDone ? ghost?.id : null}
-                        onEdge={scene === "cascade" && cascadeDone ? () => void openSource() : undefined}
-                      />
+                        <StageMap
+                          map={map}
+                          state={scene === "evidence" ? (news.closed.length || after ? afterState : beforeState) : beforeState}
+                          reveal={scene === "cascade" ? reveal : Infinity}
+                          focus={scene === "cascade" && cascadeDone ? ghost?.id : null}
+                          onEdge={scene === "cascade" && cascadeDone ? () => void openSource() : undefined}
+                        />
+                        {scene === "cascade" && !before && <CopyingVeil />}
                       </motion.div>
-                      </div>
-                    ) : (
-                      <div className="grid aspect-[1000/540] place-items-center text-[14px] text-muted">
-                        {error ? null : <Spinner />}
-                      </div>
-                    )}
-                    <Legend />
-                  </motion.div>
+                    </div>
+                  ) : (
+                    <div className="grid aspect-[1000/540] place-items-center text-[14px] text-muted">{error ? null : <Spinner />}</div>
+                  )}
+                  <Legend />
                 </div>
               )}
             </section>
 
-            {/* the narration */}
-            <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start" aria-live="polite">
+            {/* one finding, one next action; the depth behind it */}
+            <aside className="min-w-0 space-y-4 xl:sticky xl:top-20 xl:self-start" aria-live="polite">
               {error && (
-                <div className="mb-4 rounded-xl border border-bad/50 bg-bad/5 px-4 py-3 text-[14px]" role="alert">
+                <div className="rounded-xl border border-bad/50 bg-bad/5 px-4 py-3 text-[14px]" role="alert">
                   <p className="text-ink">That step didn&apos;t finish.</p>
                   <p className="mt-1 text-[13px] text-muted">{error}</p>
-                  {!replay && (
-                    <button type="button" onClick={() => void playRecording()} className="mt-2 text-[13px] text-ink underline underline-offset-4">
-                      Watch the recorded run instead (labelled Replay)
-                    </button>
-                  )}
+                  <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]">
+                    {retry && (
+                      <button type="button" onClick={() => void retry()} className="text-ink underline underline-offset-4">
+                        {scene === "futures" ? "Retry this search" : "Try again"}
+                      </button>
+                    )}
+                    {!replay && (
+                      <button type="button" onClick={() => void playRecording()} className="text-muted underline underline-offset-4 hover:text-ink">
+                        Watch the recorded run (labelled Replay)
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {scene === "change" && (
-                <Narration title="The proposal">
-                  <P>
-                    Platform wants to switch off <b>{GOAL.service}</b>, the original SAML sign-on. ADR-005 named identity its successor in
-                    January 2025.
-                  </P>
-                  <P>Before anyone touches production, Orion makes a full copy of the company graph and switches it off there.</P>
-                  {spent && (
-                    <div className="rounded-xl border border-warn/50 px-4 py-3 text-[14px]">
-                      <p className="text-ink">Your copy has already changed: Tomasz&apos;s #billing message was posted in it.</p>
-                      <button type="button" onClick={() => startOver("/rehearse")} className="mt-1.5 text-[13px] text-warn underline underline-offset-4">
-                        Start over on a fresh copy
-                      </button>
-                    </div>
-                  )}
-                  <Primary onClick={rehearse} busy={busy} disabled={!map} bind={primary} label="Rehearse it on a copy" busyLabel="Copying the company" />
-                </Narration>
-              )}
-
-              {scene === "cascade" && before && (
-                <Narration title={cascadeDone ? "What breaks" : "Following the failure"}>
-                  <AnimatePresence mode="wait">
-                    {!cascadeDone ? (
-                      <motion.div key="walk" exit={{ opacity: 0 }} className="space-y-3">
-                        <P>
-                          Copied in <b className="tnum">{fmtMs(before.copy_ms)}</b> and switched off in {fmtMs(before.apply_ms)}. Now Orion walks every
-                          dependency in the copy, out from {GOAL.service}.
-                        </P>
-                        <Causal diff={before.diff} upto={reveal} />
-                      </motion.div>
+              {scene === "cascade" &&
+                (!before ? (
+                  !error && (
+                    <p className="flex items-center gap-2.5 text-[15px] text-muted">
+                      <Spinner size={13} /> Copying the company graph
+                    </p>
+                  )
+                ) : !cascadeDone ? (
+                  <Panel key="walk" title="What the walk reaches">
+                    <Causal diff={before.diff} upto={reveal} />
+                    <button type="button" onClick={() => setReveal(Infinity)} className="text-[13px] text-muted underline underline-offset-4 hover:text-ink">
+                      Show the result
+                    </button>
+                  </Panel>
+                ) : (
+                  <Panel key="found" title="What this means">
+                    {ghost ? (
+                      <div className="rounded-xl border border-warn/50 bg-panel px-4 py-3.5">
+                        <p className="text-[15.5px] leading-snug text-ink">
+                          {human(ghost.dependent)} relies on {human(GOAL.service)}, and that link was never written down.
+                        </p>
+                        <p className="mt-1 text-[14px] leading-snug text-muted">
+                          It starts most of this. Orion found it in a #billing message, not in the service catalog.
+                        </p>
+                        {!sourceOpen ? (
+                          <button
+                            type="button"
+                            onClick={openSource}
+                            className="mt-2 text-[14px] text-warn underline decoration-warn/40 underline-offset-4 hover:decoration-warn"
+                          >
+                            Inspect the evidence
+                          </button>
+                        ) : (
+                          <SourceCard s={source} onMore={() => ghost.fact && openBlame({ fact: ghost.fact })} />
+                        )}
+                      </div>
                     ) : (
-                      <motion.div key="result" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="space-y-5">
-                        <Strip stop={t.stop} slow={t.slow} customers={nCust} />
-                        <Causal diff={before.diff} upto={Infinity} />
-                        {ghost && (
-                          <div className="rounded-xl border border-warn/50 bg-panel px-4 py-3.5">
-                            <p className="text-[15px] leading-snug text-ink">
-                              The link that starts most of this was never written down.
-                            </p>
-                            <p className="mt-1 text-[14px] leading-snug text-muted">
-                              {human(ghost.dependent)} relying on {human(ghost.dependency)} came from a #billing message, not the service catalog.
-                            </p>
-                            {!sourceOpen ? (
-                              <button type="button" onClick={openSource} className="mt-2 text-[14px] text-warn underline decoration-warn/40 underline-offset-4 hover:decoration-warn">
-                                Show where it came from
-                              </button>
-                            ) : (
-                              <SourceCard s={source} onMore={() => ghost.fact && openBlame({ fact: ghost.fact })} />
-                            )}
-                          </div>
-                        )}
-                        {!!before.diff.required_approvers?.length && (
-                          <P>
-                            {before.diff.required_approvers.length} teams would have to sign off:{" "}
-                            {before.diff.required_approvers.map((a) => a.team).join(", ")}.
-                          </P>
-                        )}
-                        <Primary onClick={explore} bind={primary} label="Find a safer sequence" />
-                      </motion.div>
+                      <P>Every system that relies on it, directly or through others, is hit.</P>
                     )}
-                  </AnimatePresence>
-                </Narration>
-              )}
+                    <Primary onClick={() => void explore()} bind={primary} label="Find a safer sequence" />
+                    <More title="Everything that breaks, in order">
+                      <Causal diff={before.diff} upto={Infinity} />
+                      {!!before.diff.required_approvers?.length && (
+                        <p className="mt-3 text-[13.5px] text-muted">
+                          {before.diff.required_approvers.length} teams would have to sign off:{" "}
+                          {before.diff.required_approvers.map((a) => a.team).join(", ")}.
+                        </p>
+                      )}
+                    </More>
+                  </Panel>
+                ))}
 
-              {scene === "futures" && (
-                <Narration title={plan ? "Retire now, or prepare first" : "Rehearsing other futures"}>
-                  {!plan ? (
-                    <>
-                      <P>
-                        Instead of stopping at a warning, Orion tries the ways out it has evidence for: move a system onto a declared successor,
-                        or switch it off too if nothing else relies on it. Each future is its own copy of the company, scored the same way.
-                      </P>
+              {scene === "futures" &&
+                (!plan ? (
+                  <Panel key="searching" title="How the search works">
+                    <P>
+                      Orion only tries moves it has evidence for: move a system onto its declared successor, or switch it off too if nothing else
+                      relies on it. Every future is scored the same way.
+                    </P>
+                    {!error && (
                       <p className="flex items-center gap-2 text-[14px] text-muted">
                         <Spinner size={12} />
-                        <span className="tnum text-ink">{futures.length}</span> {futures.length === 1 ? "copy" : "copies"} explored ·{" "}
+                        <span className="tnum text-ink">{futures.length}</span> {futures.length === 1 ? "future" : "futures"} explored ·{" "}
                         <span className="tnum">{fmtMs(Math.max(0, now - planT0))}</span>
                       </p>
-                    </>
-                  ) : (
-                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="space-y-4">
-                      <Compare
-                        left={{ title: "Retire now", tone: "bad", lines: [hitLine(t.stop, t.slow), `${nCust} customers affected`] }}
-                        right={{
-                          title: "Prepare first",
-                          tone: plan.verdict === "residual" ? "warn" : "ok",
-                          lines: [
-                            `${plural(plan.steps.length - 1, "move")}, then retire`,
-                            plan.verdict === "residual" ? `risk ${plan.best.risk} remains` : "Nothing in the model is hit",
-                          ],
-                        }}
-                      />
-                      <ol className="space-y-2">
-                        {plan.steps.map((s, i) => (
-                          <li key={i} className="flex gap-3 rounded-xl border border-rule bg-panel px-3.5 py-2.5">
-                            <span className={`mono grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${i === plan.steps.length - 1 ? "bg-ember text-night" : "ring-1 ring-rule-strong"}`}>
-                              {i + 1}
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-[15px] leading-snug text-ink">{humanLabel(s.label)}</span>
-                              {!!s.prerequisites?.length && (
-                                <span className="mt-0.5 block text-[13px] leading-snug text-warn">
-                                  Waits on {s.prerequisites.map((p) => `${p.key} (${p.status}${p.blocks ? `, blocks ${p.blocks}` : ""})`).join(", ")}
-                                </span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                      <p className="text-[13px] text-faint">
-                        {plan.explored} copies in {fmtMs(plan.ms)}. Orion&apos;s model of the company, not a guarantee: what it rests on is listed on the
-                        What-ifs screen.
-                      </p>
-                      <Primary onClick={() => go("evidence")} bind={primary} label="Meanwhile, in #billing…" />
-                    </motion.div>
-                  )}
-                </Narration>
-              )}
+                    )}
+                  </Panel>
+                ) : (
+                  <Panel key="plan" title="Retire now, or prepare first">
+                    <Compare
+                      left={{ title: "Retire now", tone: "bad", lines: [hitLine(t.stop, t.slow), `${nCust} customers affected`] }}
+                      right={{
+                        title: "Prepare first",
+                        tone: plan.verdict === "residual" ? "warn" : "ok",
+                        lines: [
+                          plan.verdict === "residual" ? `Risk ${plan.best.risk} remains` : "Nothing in the model is hit",
+                          `after ${plural(plannedMoves, "move")}`,
+                        ],
+                      }}
+                    />
+                    <Primary onClick={() => go("evidence")} bind={primary} label="Next: new evidence" />
+                    <More title="The plan, step by step">
+                      <Steps steps={plan.steps} />
+                      <p className="mt-3 text-[13px] text-faint">Orion&apos;s model of the company, not a guarantee. What it rests on is listed on the What-ifs screen.</p>
+                    </More>
+                  </Panel>
+                ))}
 
               {scene === "evidence" && (
-                <Narration title={news.done ? "A new fact just changed this decision." : "New evidence"} big={news.done}>
+                <Panel key={news.started ? "reading" : "message"} title={news.started ? "What Orion did with it" : "Two days later, in #billing"}>
                   {!news.started ? (
                     <>
-                      <P>Two days later, Tomasz posts in #billing. Orion reads team chat to keep its records current.</P>
                       <Bubble />
+                      <P>That is step one of the plan. Orion reads team chat to keep its records current.</P>
                       {llm === false && !replay ? (
                         <p className="text-[14px] text-muted">Reading messages needs the AI service, which isn&apos;t set up on this server.</p>
                       ) : null}
                       <Primary onClick={deliver} bind={primary} disabled={llm === false && !replay} label="Let Orion read it" />
                     </>
                   ) : (
-                    <div className="space-y-5">
+                    <>
                       <Bubble small />
                       <ol className="space-y-2.5">
                         <Beat
                           on={news.received}
                           label="New source received"
-                          sub={`#billing, Tomasz Nowak${news.reader === "rules" ? " · read by Orion's sentence rules (the model was slow)" : news.reader ? " · read by the model" : ""}`}
+                          sub={`#billing, Tomasz Nowak${news.reader === "rules" ? " · read by Orion's sentence rules" : news.reader ? " · read by the model" : ""}`}
                         />
                         <Beat
                           on={news.closed.length > 0}
-                          label="Dependency updated"
-                          sub={news.closed.length ? news.closed.map((c) => `${human(c.subject)} no longer relies on ${human(c.object)}`).join("; ") : "reading the message"}
+                          label="Company graph updated"
+                          sub={
+                            news.closed.length
+                              ? news.closed.map((c) => `${human(c.subject)} no longer relies on ${human(c.object)}`).join("; ")
+                              : "reading the message"
+                          }
                         />
                         <Beat
                           on={!!news.expired}
-                          label="Earlier answer is now out of date"
+                          label="Earlier answer marked out of date"
                           sub={news.expired ? `Priya's answer: ${news.expired.broken} of ${news.expired.total} points no longer hold` : "checking every answer that relied on it"}
                         />
-                        <Beat on={news.done} label="Decision rehearsed again" sub={after ? `on the changed company, universe ${after.uid}` : "copying the changed company"} />
+                        <Beat on={news.done} label="Shutdown rehearsed again" sub={after ? "on the updated company" : "copying the updated company"} />
                       </ol>
                       {news.done && after && ta && (
                         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="space-y-4">
-                          <Compare
-                            left={{ title: "Rehearsed before", tone: "bad", lines: [hitLine(t.stop, t.slow), plural(nCust, "customer")] }}
-                            right={{
-                              title: "Rehearsed now",
-                              tone: ta.stop + ta.slow ? "warn" : "ok",
-                              lines: [hitLine(ta.stop, ta.slow), plural(nCustAfter, "customer")],
-                            }}
-                          />
-                          <AnswerDelta a={answer.after ?? answer.before} />
-                          <p className="border-l-2 border-ember pl-3 text-[16px] leading-snug text-ink">
-                            Orion doesn&apos;t just remember the answer. It remembers what the answer depended on.
-                          </p>
                           <Primary onClick={() => go("finale")} bind={primary} label="See the decision" />
+                          <AnswerDelta a={answer.after ?? answer.before} />
                         </motion.div>
                       )}
-                    </div>
+                    </>
                   )}
-                </Narration>
+                </Panel>
               )}
             </aside>
           </motion.div>
@@ -808,12 +875,143 @@ export default function Stage() {
 
 // ------------------------------------------------------------------ pieces
 
-function Narration({ title, big, children }: { title: string; big?: boolean; children: React.ReactNode }) {
+/** "An undocumented dependency puts Billing in the blast radius." The most important system the hidden link reaches. */
+function blastHeadline(diff: Diff, hidden: string | null) {
+  if (hidden) {
+    const reached = diff.broken
+      .filter((b) => b.service !== hidden && b.via_undeclared?.length)
+      .sort((a, b) => a.tier - b.tier || a.hops - b.hops || a.service.localeCompare(b.service));
+    if (reached[0]) return `An undocumented dependency puts ${human(reached[0].service)} in the blast radius.`;
+    return `An undocumented dependency means ${human(hidden)} stops.`;
+  }
+  const n = diff.broken.length;
+  return n ? `Retiring it now hits ${plural(n, "system")}.` : "Retiring it now hits nothing in the model.";
+}
+
+/** Which company is on screen: today's (a copy of it), a simulated future, or the company after a real update. */
+function CompanyTrack({ at }: { at: number }) {
+  const items = ["Today's company", "Simulated plan", "Updated company"];
   return (
-    <motion.div key={title} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.45, ease: EASE }} className="space-y-4">
-      <h2 className={`heading leading-[1.05] tracking-[-0.025em] ${big ? "text-[clamp(1.9rem,2.6vw,2.4rem)]" : "text-[28px]"}`}>{title}</h2>
+    <ol className="flex items-center gap-2 text-[13px]" aria-label="Which company is on screen">
+      {items.map((x, i) => (
+        <li key={x} className="flex items-center gap-2">
+          {i > 0 && (
+            <svg width="14" height="8" viewBox="0 0 14 8" className={i <= at ? "text-ember/70" : "text-rule-strong"} aria-hidden>
+              <path d="M0 4h12M9 1l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            </svg>
+          )}
+          <span
+            aria-current={i === at ? "true" : undefined}
+            className={`rounded-full px-2.5 py-0.5 transition-colors ${i === at ? "bg-ember/15 text-ink ring-1 ring-ember/60" : i < at ? "text-muted" : "text-faint"}`}
+          >
+            {x}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The scene's result in numbers, under its headline; with `was`, against the earlier rehearsal. */
+function ResultLine({
+  stop,
+  slow,
+  customers,
+  was,
+}: {
+  stop: number;
+  slow: number;
+  customers: number;
+  was?: { stop: number; slow: number; customers: number };
+}) {
+  const items = [
+    { n: stop, label: stop === 1 ? "system stops" : "systems stop", c: "var(--color-bad)", w: was?.stop },
+    { n: slow, label: "slow down", c: "var(--color-warn)", w: was?.slow },
+    { n: customers, label: customers === 1 ? "customer affected" : "customers affected", c: "var(--color-ink)", w: was?.customers },
+  ];
+  return (
+    <p className="mt-2.5 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+      {items.map((x, i) => (
+        <motion.span
+          key={x.label}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 + i * 0.12, duration: 0.45, ease: EASE }}
+          className="flex items-baseline gap-1.5"
+        >
+          {x.w !== undefined && x.w !== x.n && <span className="heading tnum text-[20px] text-faint line-through decoration-[1.5px]">{x.w}</span>}
+          <span className="heading tnum text-[28px] leading-none" style={{ color: x.n ? x.c : "var(--color-muted)" }}>
+            {x.n}
+          </span>
+          <span className="text-[15px] text-muted">{x.label}</span>
+        </motion.span>
+      ))}
+      <span className="rounded border border-rule px-1.5 py-px text-[11.5px] text-faint" title="Computed by walking the copied graph; not a measured outage">
+        modelled
+      </span>
+    </p>
+  );
+}
+
+/** The light that crosses the map while the company is being copied. */
+function CopyingVeil() {
+  const reduce = useReducedMotion();
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg" aria-hidden>
+      {!reduce && (
+        <motion.span
+          className="absolute inset-y-0 left-0 w-[30%]"
+          style={{ background: "linear-gradient(90deg, transparent, rgb(255 107 53 / 0.12) 75%, rgb(255 107 53 / 0.55) 99%, transparent)" }}
+          initial={{ x: "-110%" }}
+          animate={{ x: "340%" }}
+          transition={{ duration: 1.3, ease: [0.65, 0, 0.35, 1], repeat: Infinity, repeatDelay: 0.25 }}
+        />
+      )}
+    </div>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.45, ease: EASE }} className="space-y-4">
+      <h2 className="text-[13px] font-medium text-muted">{title}</h2>
       {children}
     </motion.div>
+  );
+}
+
+/** Depth for whoever wants it, folded by default. */
+function More({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-xl border border-rule bg-panel/60 px-4 py-2.5">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-[13.5px] text-muted hover:text-ink [&::-webkit-details-marker]:hidden">
+        {title}
+        <span className="transition-transform group-open:rotate-180" aria-hidden>
+          ▾
+        </span>
+      </summary>
+      <div className="pb-1.5 pt-3">{children}</div>
+    </details>
+  );
+}
+
+function Steps({ steps }: { steps: PlanResult["steps"] }) {
+  return (
+    <ol className="space-y-2">
+      {steps.map((s, i) => (
+        <li key={i} className="flex gap-3">
+          <span
+            className={`mono grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${i === steps.length - 1 ? "bg-ember text-night" : "ring-1 ring-rule-strong"}`}
+          >
+            {i + 1}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[14.5px] leading-snug text-ink">{humanLabel(s.label)}</span>
+            {!!s.prerequisites?.length && <span className="mt-0.5 block text-[13px] leading-snug text-warn">{waitsOn(s.prerequisites)}</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -852,33 +1050,6 @@ function Primary({
         </svg>
       )}
     </button>
-  );
-}
-
-/** The result strip: what the rehearsal found, large. */
-function Strip({ stop, slow, customers }: { stop: number; slow: number; customers: number }) {
-  const items = [
-    { n: stop, label: stop === 1 ? "system stops" : "systems stop", c: "var(--color-bad)" },
-    { n: slow, label: "slow down", c: "var(--color-warn)" },
-    { n: customers, label: "customers affected", c: "var(--color-ink)" },
-  ];
-  return (
-    <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-rule bg-panel">
-      {items.map((x, i) => (
-        <motion.div
-          key={x.label}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 + i * 0.12, duration: 0.45, ease: EASE }}
-          className={`px-3.5 py-3 ${i ? "border-l border-rule" : ""}`}
-        >
-          <p className="heading tnum text-[40px] leading-none" style={{ color: x.c }}>
-            {x.n}
-          </p>
-          <p className="mt-1.5 text-[13px] leading-tight text-muted">{x.label}</p>
-        </motion.div>
-      ))}
-    </div>
   );
 }
 
@@ -1054,7 +1225,10 @@ function Legend() {
   );
 }
 
-/** The last frame: the decision as it stands now, two ways, and what ran to get here. */
+/** Systems a visitor can rehearse switching off next, on the What-ifs screen (which takes ?try=<system>). */
+const NEXT_TRIES = ["reports-legacy", "flag-eval", "edge-gateway"];
+
+/** The last frame: the decision as it stands now, what remains before it can be made, and where to go next. */
 function Finale({
   map,
   before,
@@ -1073,69 +1247,116 @@ function Finale({
   today: MapState;
   plan: PlanResult | null;
   leftToDo: PlanResult["steps"];
-  news: { closed: unknown[]; expired: { broken: number; total: number } | null };
+  news: { closed: { subject: string; object: string }[]; opened: { subject: string; object: string }[]; expired: { broken: number; total: number } | null };
   replay: boolean;
   onAgain: () => void;
   seen: () => void;
 }) {
+  const reduce = useReducedMotion();
   const now = after ?? before;
   const st = after ? today : now ? stateOfDiff(now.diff) : CALM;
   const tt = tally(st.effects);
+  const hit = tt.stop + tt.slow;
   const hitNames = now?.diff.broken.map((b) => human(b.service)) ?? [];
   const custNames = now?.diff.customers?.map((c) => c.customer) ?? [];
-  // the prepared company: the remaining moves made, then the switch-off; nothing modeled is hit
+  // the prepared company: the remaining moves made, then the switch-off
   const prepared: MapState = plan ? stateOfFuture(plan.best as Future, GOAL.service, () => []) : { ...CALM, off: [GOAL.service] };
-  const steps = leftToDo.length ? leftToDo : plan?.steps.slice(0, -1) ?? [];
+  const steps = after ? leftToDo : (plan?.steps.slice(0, -1) ?? []);
+  const moved = news.opened.map((o) => `${human(o.subject)} now uses ${human(o.object)}.`).join(" ");
+  const verdict = hit ? "Don't retire it yet." : "It can be retired.";
+  const why = hit
+    ? `${moved ? `${moved} ` : ""}${steps.length ? `${plural(steps.length, "step")} ${steps.length === 1 ? "remains" : "remain"} before the shutdown is safe.` : "Something is still hit."}`
+    : `${moved ? `${moved} ` : ""}Nothing in the model is hit any more.`;
+  const C = (d: number) => ({
+    initial: reduce ? false : { opacity: 0, y: 14 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.6, ease: EASE, delay: d },
+  });
   return (
-    <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="mx-auto w-full max-w-[1480px] px-4 pb-16 pt-8 md:px-8 md:pt-12">
-      <p className="text-[14px] text-muted">{DECISION}</p>
-      <h1 className="heading mt-1 text-[clamp(2.4rem,5vw,4rem)] leading-[1] tracking-[-0.035em]">The decision, rehearsed.</h1>
+    <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="mx-auto w-full max-w-[1480px] px-4 pb-16 pt-6 md:px-8 md:pt-8">
+      <motion.p {...C(0)} className="text-[14px] text-muted">
+        The decision, on the company as it is now
+      </motion.p>
+      <motion.h1 {...C(0.05)} className="heading mt-1 text-[clamp(2.6rem,5.4vw,4.6rem)] leading-[1] tracking-[-0.04em]">
+        {verdict}
+      </motion.h1>
+      <motion.p {...C(0.15)} className="mt-3 max-w-[60ch] text-[clamp(1.05rem,1.5vw,1.3rem)] leading-snug text-muted">
+        {why}
+      </motion.p>
+
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
-        <article className="rounded-2xl border border-bad/40 bg-panel p-5">
+        {/* what remains: the useful part, first */}
+        <motion.article {...C(0.25)} className="rounded-2xl border border-ember/50 bg-panel p-5 shadow-[0_40px_120px_-60px_rgb(255_107_53/0.5)]">
           <p className="flex items-center gap-2 text-[14px] text-muted">
-            <span className="size-2 rounded-full bg-bad" aria-hidden /> Retire it today
+            <span className="size-2 rounded-full bg-ember" aria-hidden /> {steps.length ? "What remains" : "Ready"}
           </p>
-          <h2 className="heading mt-2 text-[26px] leading-tight">
-            {tt.stop + tt.slow ? `${hitNames.join(", ")} ${tt.stop + tt.slow === 1 ? (tt.stop ? "stops" : "slows down") : "are hit"}` : "Nothing in the model is hit"}
+          {steps.length ? (
+            <ol className="mt-3 space-y-3">
+              {[...steps, { label: `Switch off ${GOAL.service}`, prerequisites: [] as NonNullable<PlanResult["steps"][number]["prerequisites"]> }].map((s, i, all) => (
+                <li key={s.label} className="flex gap-3">
+                  <span
+                    className={`mono grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-semibold ${i === all.length - 1 ? "ring-1 ring-rule-strong" : "bg-ember text-night"}`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="heading block text-[22px] leading-tight">{humanLabel(s.label)}</span>
+                    {!!s.prerequisites?.length && <span className="mt-0.5 block text-[14px] text-warn">{waitsOn(s.prerequisites)}</span>}
+                    {i === all.length - 1 && <span className="mt-0.5 block text-[14px] text-muted">Then nothing in the model is hit.</span>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <h2 className="heading mt-2 text-[24px] leading-tight">Switch off {human(GOAL.service)}: nothing is left to move.</h2>
+          )}
+          {map && (
+            <div className="mt-4 rounded-xl bg-well p-2">
+              <StageMap map={map} state={prepared} label="After the remaining steps: nothing in the model is hit" />
+            </div>
+          )}
+        </motion.article>
+        <motion.article {...C(0.35)} className="rounded-2xl border border-rule bg-panel p-5" style={{ borderColor: hit ? "color-mix(in oklab, var(--color-bad) 40%, var(--color-rule))" : undefined }}>
+          <p className="flex items-center gap-2 text-[14px] text-muted">
+            <span className="size-2 rounded-full" style={{ background: hit ? "var(--color-bad)" : "var(--color-ok)" }} aria-hidden /> If you retire it today
+          </p>
+          <h2 className="heading mt-2 text-[22px] leading-tight">
+            {hit ? `${hitNames.join(", ")} ${hit === 1 ? (tt.stop ? "stops" : "slows down") : "are hit"}` : "Nothing in the model is hit"}
           </h2>
           <p className="mt-1 text-[15px] leading-snug text-muted">
-            {custNames.length ? `${plural(custNames.length, "customer")} use it: ${custNames.join(", ")}.` : "No customer uses an affected system."}
+            {custNames.length ? `${plural(custNames.length, "customer")} would notice: ${custNames.join(", ")}.` : "No customer uses an affected system."}
           </p>
           {map && (
             <div className="mt-4 rounded-xl bg-well p-2">
-              <StageMap map={map} state={st} />
+              <StageMap map={map} state={st} label="Retiring it today" />
             </div>
           )}
-        </article>
-        <article className="rounded-2xl border border-ok/40 bg-panel p-5">
-          <p className="flex items-center gap-2 text-[14px] text-muted">
-            <span className="size-2 rounded-full bg-ok" aria-hidden /> Prepare first
-          </p>
-          <h2 className="heading mt-2 text-[26px] leading-tight">
-            {steps.length ? `${steps.map((s) => humanLabel(s.label)).join(", then ")}, then retire` : "Retire it: nothing is left to move"}
-          </h2>
-          <p className="mt-1 text-[15px] leading-snug text-muted">
-            No modeled problems after these steps.
-            {steps.flatMap((s) => s.prerequisites ?? []).length
-              ? ` Waits on ${steps.flatMap((s) => s.prerequisites ?? []).map((p) => p.key).join(" and ")}.`
-              : ""}
-          </p>
-          {map && (
-            <div className="mt-4 rounded-xl bg-well p-2">
-              <StageMap map={map} state={prepared} />
-            </div>
-          )}
-        </article>
+        </motion.article>
       </div>
+
+      {/* one credible next experiment */}
+      <motion.div {...C(0.45)} className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-rule bg-panel px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="heading text-[20px] leading-tight">Try another change</p>
+          <p className="mt-0.5 text-[14px] text-muted">Pick a system and Orion rehearses switching it off the same way, on your copy.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {NEXT_TRIES.map((s) => (
+            <Link key={s} href={`/multiverse?try=${s}`} onClick={seen} className="btn h-10 rounded-full px-4 text-[14px]">
+              Switch off {human(s)}
+            </Link>
+          ))}
+        </div>
+      </motion.div>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div>
-          <p className="heading text-[clamp(1.5rem,2.4vw,2rem)] leading-[1.2] tracking-[-0.02em]">
+          <p className="heading text-[clamp(1.4rem,2.2vw,1.9rem)] leading-[1.2] tracking-[-0.02em]">
             We test code before shipping it. Orion makes the decisions around that code rehearsable too.
           </p>
-          <p className="mt-4 max-w-[62ch] text-[16px] leading-[1.6] text-muted">
-            What you saw: copies of a synthetic company graph in FalkorDB, consequences computed by walking each copy, and the record behind
-            each link. A model reads messages like Tomasz&apos;s; what breaks, and what a plan leaves broken, is computed from the graph.
+          <p className="mt-4 max-w-[62ch] text-[15.5px] leading-[1.6] text-muted">
+            What you saw: copies of a synthetic company graph in FalkorDB, consequences computed by walking each copy, and the record behind each
+            link. A model reads messages like Tomasz&apos;s; what breaks, and what a plan leaves broken, is computed from the graph.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/" onClick={seen} className="btn btn-primary h-11 rounded-full px-5 text-[15px]">
@@ -1162,11 +1383,10 @@ function Finale({
           <Link href="/hindsight?i=INC-311" onClick={seen} className="group block rounded-xl border border-rule bg-panel px-4 py-3.5 transition-colors hover:border-rule-strong">
             <p className="text-[13px] text-muted">Encore: INC-311</p>
             <p className="mt-0.5 text-[16px] leading-snug text-ink">See what the company knew then, and what it learned too late.</p>
-            <p className="mt-1 text-[13px] text-faint transition-colors group-hover:text-muted">The outage replayed against the records of the day →</p>
+            <p className="mt-1 text-[13px] text-faint transition-colors group-hover:text-muted">The outage replayed against the records of the day</p>
           </Link>
         </div>
       </div>
     </motion.section>
   );
 }
-

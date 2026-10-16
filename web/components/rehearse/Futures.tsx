@@ -55,7 +55,6 @@ function Card({
   parent,
   map,
   customersOf,
-  index,
   chosen,
   done,
   prereqs,
@@ -65,7 +64,6 @@ function Card({
   parent?: Future;
   map: CompanyMap;
   customersOf: (names: string[]) => string[];
-  index: number;
   chosen: boolean;
   done: boolean;
   prereqs: Prereq[];
@@ -75,6 +73,17 @@ function Card({
   const o = outcome(f, parent, prereqs);
   const state = stateOfFuture(f, map.nodes.find((n) => n.role === "root")!.id, customersOf);
   const move = (f.moves ?? []).filter((m) => !parent?.moves?.some((p) => p.service === m.service && p.to === m.to && p.off === m.off)).at(-1);
+  // what this copy is in the story: the shutdown alone, a step of the chosen preparation, its outcome, or a road not taken
+  const role =
+    f.depth === 0
+      ? "Retire immediately"
+      : !done
+        ? `Preparation · ${plural(f.depth, "step")}`
+        : big
+          ? "Proposed outcome · not done yet"
+          : chosen
+            ? `Preparation step ${f.depth}`
+            : "Alternative considered";
   return (
     <motion.article
       layout="position"
@@ -84,30 +93,31 @@ function Card({
       className={`relative w-full overflow-hidden rounded-xl border bg-panel ${done && chosen ? "border-ember/70 shadow-[0_0_0_1px_var(--color-ember),0_30px_80px_-40px_rgb(255_107_53/0.5)]" : "border-rule"}`}
     >
       <div className="flex items-baseline justify-between gap-3 px-4 pt-3.5">
-        <p className="text-[12px] text-faint">
-          Future {index}
-          {f.depth === 0 ? " · the change alone" : ` · ${plural(f.depth, "step")} of preparation`}
-        </p>
-        <p className="mono text-[12px] tnum" style={{ color: TONE[o.tone] }} title="Orion's modeled risk score for this copy">
+        <p className={`text-[12.5px] ${done && chosen ? "text-ember" : "text-faint"}`}>{role}</p>
+        <p className="mono text-[11.5px] text-faint tnum" title="Orion's modelled risk score for this copy">
           risk {f.risk}
         </p>
       </div>
-      <h3 className="heading px-4 pt-1 text-[19px] leading-[1.2]">{humanLabel(f.label)}</h3>
-      <p className="mono px-4 pt-0.5 text-[12px] text-faint">
-        {move ? (move.off ? `${move.service} · switched off` : `${move.service} → ${move.to}`) : f.label.replace(/^Switch off /, "deprecate ")}
+      {/* the consequence first, then what was changed to get it */}
+      <h3 className="heading flex items-start gap-2 px-4 pt-1 text-[18px] leading-[1.2]">
+        <span className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: TONE[o.tone] }} aria-hidden />
+        {o.head}
+      </h3>
+      <p className="px-4 pt-1 text-[13.5px] leading-snug text-muted">
+        {f.depth === 0 ? (
+          "Nothing prepared: the shutdown alone."
+        ) : (
+          <>
+            <span className="text-ink">Changed:</span> {move ? (move.off ? `also switched off ${human(move.service)}` : `moved ${human(move.service)} onto ${human(move.to!)}`) : humanLabel(f.label)}
+          </>
+        )}
       </p>
       <div className="mx-3 mt-2 rounded-lg bg-well px-1 py-1">
         <StageMap map={map} state={state} mini label={`${humanLabel(f.label)}: ${o.head}`} />
       </div>
       <div className="px-4 pb-4 pt-2.5">
-        <p className="flex items-start gap-2 text-[15px] font-medium leading-snug text-ink">
-          <span className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: TONE[o.tone] }} aria-hidden />
-          {o.head}
-        </p>
-        <p className="mt-1 text-[13.5px] leading-snug text-muted">{o.why}</p>
-        {chosen && done && prereqs.length > 0 && o.tone !== "ok" && (
-          <p className="mt-2 text-[12.5px] leading-snug text-warn">{waitsOn(prereqs)}</p>
-        )}
+        <p className="text-[13px] leading-snug text-muted">{o.why}</p>
+        {chosen && done && prereqs.length > 0 && o.tone !== "ok" && <p className="mt-2 text-[12.5px] leading-snug text-warn">{waitsOn(prereqs)}</p>}
       </div>
     </motion.article>
   );
@@ -189,9 +199,6 @@ export default function Futures({
     };
   }, [nodes, onPath, result]);
 
-  let index = 0;
-  const order = new Map<string, number>();
-  for (const col of cols) for (const n of col) order.set(n.id, ++index);
 
   return (
     <div ref={box} className="relative">
@@ -220,7 +227,6 @@ export default function Futures({
                     parent={n.parent ? byId.get(n.parent) : undefined}
                     map={map}
                     customersOf={customersOf}
-                    index={order.get(n.id)!}
                     chosen={onPath.has(n.id)}
                     done={!!result}
                     prereqs={prereqsOf(n)}
@@ -233,7 +239,7 @@ export default function Futures({
                     animate={{ opacity: result ? 0.7 : 1 }}
                     className="mt-2.5 rounded-lg border border-dashed border-rule-strong px-3 py-2 text-[12.5px] leading-snug text-muted"
                   >
-                    <span className="text-ink">Turned down:</span> moving onto {ghosts.get(n.id)!.names.join(", ")}.{" "}
+                    <span className="text-ink">Also considered, turned down:</span> moving onto {ghosts.get(n.id)!.names.join(", ")}.{" "}
                     {(() => {
                       const g = ghosts.get(n.id)!;
                       const w = g.names.length > 1 ? g.why.replace(/\bit can\b/, "any of them can") : g.why;

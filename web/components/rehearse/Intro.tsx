@@ -19,6 +19,7 @@ import {
   buildMap,
   CALM,
   GOAL,
+  human,
   plural,
   stateOfDiff,
   stateOfFuture,
@@ -652,6 +653,8 @@ export default function Intro({
   awake,
   replay,
   waited,
+  spent,
+  onFresh,
   onStart,
   onReplay,
   seen,
@@ -663,6 +666,9 @@ export default function Intro({
   awake: boolean;
   replay: boolean;
   waited: number;
+  /** this browser's copy already took the #billing message: the story has happened in it */
+  spent: boolean;
+  onFresh: () => void;
   onStart: () => void;
   onReplay: () => void;
   seen: () => void;
@@ -753,11 +759,35 @@ export default function Intro({
             before anything changes in production.
           </motion.p>
 
+          {/* the proposal the rehearsal is about */}
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: EASE, delay: 1.0 }}
-            className="mt-9 flex flex-wrap items-center gap-3"
+            transition={{ duration: 0.7, ease: EASE, delay: 0.95 }}
+            className="mt-8 max-w-[540px] rounded-xl border border-rule bg-panel/80 px-4 py-3 backdrop-blur-sm"
+          >
+            <p className="text-[12.5px] text-faint">The proposal</p>
+            <p className="mt-0.5 text-[18px] font-medium leading-snug text-ink">
+              Retire {human(GOAL.service)} <span className="mono text-[13px] font-normal text-faint">{GOAL.service}</span>
+            </p>
+            <p className="mt-0.5 text-[14px] leading-snug text-muted">
+              Platform wants the old sign-on gone. ADR-005 named Identity its successor.
+            </p>
+            {spent && (
+              <p className="mt-2 text-[13px] text-warn">
+                Your copy has already taken the #billing message, so the story has happened in it.{" "}
+                <button type="button" onClick={onFresh} className="underline underline-offset-4">
+                  Start over on a fresh copy
+                </button>
+              </p>
+            )}
+          </motion.div>
+
+          <motion.div
+            initial={reduce ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: EASE, delay: 1.05 }}
+            className="mt-5 flex flex-wrap items-center gap-3"
           >
             <Magnetic off={!ready}>
               {ready && !reduce && (
@@ -790,7 +820,7 @@ export default function Intro({
                     <Spinner size={12} />
                   )}
                 </span>
-                Rehearse a shutdown
+                Rehearse this shutdown
               </button>
             </Magnetic>
             <Link href="/" onClick={seen} className="btn h-[52px] rounded-full px-5 text-[16px]">

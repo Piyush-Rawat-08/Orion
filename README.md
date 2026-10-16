@@ -8,17 +8,22 @@ find a better sequence, and see the recommendation change when the facts do. Not
 Live: **https://orion-gamma-six.vercel.app**. A first visit opens on the guided rehearsal, about two minutes, run
 live in your own copy of Corvane (a made-up company; every person, system and customer is synthetic):
 
-1. **The change.** Retire the legacy authentication service (`sso-legacy`), on a map of everything that relies on it.
-2. **The consequences.** Orion copies the whole company graph and switches it off there. The failure walks out
-   dependency by dependency: 2 systems stop, 3 slow down, 16 customers affected. The link that starts most of it was
-   never in the service catalog; one click shows the #billing message it came from.
-3. **Other futures.** The safe-path search rehearses ways out, each its own copy of the company, drawn on the same
-   map: retire now, move invoice PDFs first, also switch off nightly reports (3 customers lose them), or move both
-   onto identity (nothing modeled is hit, once BILL-207 and IDN-58 land). Turned-down moves hang off the branch they
-   came from, with the reason.
-4. **New evidence.** Tomasz posts in #billing that BILL-207 is merged. The dependency closes, Priya's earlier answer
-   is flagged (3 of its 9 points no longer hold), and the decision is rehearsed again on the changed company: now 1
-   system stops and 3 customers are affected.
+The opening states the proposal: retire the legacy authentication service (`sso-legacy`). One press copies the
+company and the story runs. Each scene leads with what it found, and a track above the map says which company is
+on screen: a copy of today's, a simulated future, or the company after a real update.
+
+1. **What breaks.** "An undocumented dependency puts Billing in the blast radius." In the copy, the failure walks
+   out dependency by dependency: 2 systems stop, 3 slow down, 16 customers affected. The link that starts most of it
+   was never in the service catalog; one click shows the #billing message it came from.
+2. **A safer plan.** The safe-path search rehearses ways out, each its own copy of the company, drawn on the same
+   map. Cards lead with the consequence, then the move that produced it: retire immediately, a preparation step, the
+   proposed outcome (move both systems onto identity: nothing modelled is hit, once BILL-207 and IDN-58 land), and
+   the alternatives it considered and turned down, with the reason.
+3. **New evidence.** One step of that plan is reported done: Tomasz posts in #billing that BILL-207 is merged. The
+   dependency closes, Priya's earlier answer is flagged (3 of its 9 points no longer hold), and the shutdown is
+   rehearsed again on the updated company: now 1 system stops and 3 customers are affected.
+4. **The decision.** "Don't retire it yet." What remains (move nightly reports onto identity, then switch off),
+   next to what retiring today would still break. "Try another change" opens the What-ifs screen on another system.
 
 `/rehearse?replay` plays a recorded run instead, labelled Replay throughout, for a presentation over a bad connection.
 The workspace behind it (Ask, What-ifs, Hindsight, Proof, Approvals, History, Teams) is one click away. A scheduled
@@ -32,7 +37,7 @@ graph into a parallel universe, makes the change there, and shows what breaks, w
 to agree, and where every claim comes from. An assistant answers questions by walking the graph, every point in its
 answer is checked against the records before you see it, and the answer re-checks itself when the company changes.
 
-![Other futures: four copies of the company on the safe path's search tree, the chosen line lit](docs/media/rehearse-futures.jpg)
+![A safer plan: four copies of the company on the safe path's search tree, the chosen line lit](docs/media/rehearse-futures.jpg)
 
 ## Tracks
 

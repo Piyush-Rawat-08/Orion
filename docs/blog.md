@@ -46,17 +46,20 @@ afterwards it can tell you exactly how big the blind spot was.
 
 The live demo is at **https://orion-gamma-six.vercel.app**. A first visit opens on a guided rehearsal of one
 decision, retiring sso-legacy, played live in a copy of the company of your own (nothing you change spoils it for the
-next person). If it says it's waking the API, give it a minute: the API runs on a free host that sleeps. Then four
-scenes, each one a press of a button:
+next person). If it says it's waking the API, give it a minute: the API runs on a free host that sleeps. The opening
+states the proposal, one press copies the company, and four scenes follow. Each leads with what it found, and a
+track above the map says which company you're looking at: a copy of today's, a simulated future, or the company
+after a real update.
 
-1. **The change.** A map of everything that relies on sso-legacy, and the 16 customers who use those systems.
-2. **The consequences.** Orion copies the company and switches sso-legacy off in the copy. The failure walks out one
+1. **What breaks.** Orion copies the company and switches sso-legacy off in the copy. The failure walks out one
    dependency at a time: two systems stop, three slow down, all 16 customers are affected. The dashed line is the
-   dependency nobody wrote down; click it to see Tomasz's message.
-3. **Other futures.** The safe-path search, each future its own copy, drawn on the same map. The one that works moves
-   both systems onto identity first, and it waits on two open tickets.
-4. **New evidence.** Tomasz says BILL-207 is merged. The dependency closes, Priya's earlier answer is flagged out of
-   date, and the decision is rehearsed again: now one system stops and three customers notice.
+   dependency nobody wrote down, and it is what puts billing in the blast radius; click it to see Tomasz's message.
+2. **A safer plan.** The safe-path search, each future its own copy, drawn on the same map. The one that works moves
+   both systems onto identity first, and it waits on two open tickets. None of it has happened yet.
+3. **New evidence.** Tomasz says BILL-207 is merged: step one of that plan is done. The dependency closes, Priya's
+   earlier answer is flagged out of date, and the shutdown is rehearsed again on the updated company: now one
+   system stops and three customers notice.
+4. **The decision.** Don't retire it yet: one move remains. Then try another system on the What-ifs screen.
 
 ![The rehearsal: sso-legacy switched off in a copy of the company, the failure walked out to all 16 customers](https://raw.githubusercontent.com/Sumit99589/orion/main/docs/media/rehearse-consequences.jpg)
 

@@ -13,17 +13,17 @@ message about 25 s. Talk over the waits; the screen shows each step as it lands.
 | Time | On screen | Say |
 |---|---|---|
 | 0:00 | The opening: "Break your company. In a parallel universe." | "We test code before we ship it. Decisions around that code, like switching a system off, go straight to production. Orion lets you rehearse them first." |
-| 0:10 | Press **Rehearse a shutdown**. The decision and the map | "The decision: retire the legacy authentication service. This is everything that relies on it, and the 16 customers who use those systems. Corvane is a made-up company." |
-| 0:25 | Press **Rehearse it on a copy**. The copy takes the stage, today's company shrinks into the corner, the failure walks out | "Orion copies the whole company graph in FalkorDB, about 150 ms, switches the service off in the copy, and follows every dependency." |
-| 0:45 | The result strip: 2 stop · 3 slow down · 16 customers | "Two systems stop, three slow down, every customer is affected. That's modeled impact from walking the graph, not a measured outage." |
-| 0:55 | Press **Show where it came from** | "The link that starts most of it was never in the service catalog. It came from a message in #billing." |
-| 1:05 | Press **Find a safer sequence**. Futures appear as cards on the search tree | "Instead of stopping at a warning, Orion rehearses ways out. Each card is its own copy of the company, on the same map." |
-| 1:20 | The search ends; the chosen line stays lit | "Moving only invoice PDFs still leaves nightly reports broken. Switching reports off too takes them from three customers. Moving both onto identity: nothing in the model is hit, once two open tickets land." |
-| 1:40 | Press **Meanwhile, in #billing…**, then **Let Orion read it** | "Two days later Tomasz says BILL-207 is merged." |
-| 1:50 | The four beats tick: source received, dependency updated, answer out of date, rehearsed again | "The dependency closes, the answer Priya got earlier is flagged because three of its points no longer hold, and the decision is rehearsed again on the changed company." |
-| 2:15 | "A new fact just changed this decision." Before and after side by side | "Before: two stop, sixteen customers. Now: one stops, three customers. Orion doesn't just remember the answer. It remembers what the answer depended on." |
-| 2:30 | Press **See the decision**. The two still frames | "Retire it today and nightly reports stop for three customers. Or move it onto identity first, and nothing in the model breaks." |
-| 2:45 | Hold on the finale; point at the numbers row | "Every consequence here came from copies of the graph. The model reads messages; it doesn't decide what breaks." |
+| 0:10 | The proposal card: retire Legacy sign-on. Press **Rehearse this shutdown**; the stars warp | "The proposal: retire the old sign-on service. Corvane is a made-up company. Orion copies the whole company graph in FalkorDB, about 150 ms, and switches the service off in the copy." |
+| 0:25 | The failure walks out on the map; today's company sits untouched in the corner. The track says *Today's company* | "Nothing real has changed. Orion follows every dependency in the copy, one step at a time." |
+| 0:40 | Headline: "An undocumented dependency puts Billing in the blast radius." 2 stop · 3 slow down · 16 customers | "Two systems stop, three slow down, every customer is affected. Modelled impact from walking the graph, not a measured outage." |
+| 0:50 | Press **Inspect the evidence** | "The link that starts most of it was never in the service catalog. It came from a message in #billing." |
+| 1:00 | Press **Find a safer sequence**. Futures appear as cards; the track moves to *Simulated plan* | "Instead of stopping at a warning, Orion rehearses ways out. Each card is its own copy of the company, on the same map, and leads with what happens." |
+| 1:15 | The search ends: "There is a safer sequence: 2 moves, then retire." Retire now against Prepare first | "Moving only invoice PDFs still leaves nightly reports broken. Moving both onto identity: nothing in the model is hit. None of this has happened yet." |
+| 1:35 | Press **Next: new evidence**. "One step of the plan has been reported complete." Press **Let Orion read it** | "Two days later Tomasz says BILL-207 is merged. That's step one of the plan." |
+| 1:45 | The four beats tick; the track moves to *Updated company* | "The dependency closes, the answer Priya got earlier is flagged because three of its points no longer hold, and the shutdown is rehearsed again on the updated company." |
+| 2:10 | "A new fact changed the answer: 1 system and 3 customers still at risk." The old numbers struck through | "Before: two stop, sixteen customers. Now: one stops, three customers. Orion doesn't just remember the answer. It remembers what the answer depended on." |
+| 2:25 | Press **See the decision**. "Don't retire it yet." What remains, next to retiring today | "So the decision: not yet. One move remains, nightly reports onto identity, then it can go. Retire it today and three customers lose their reports." |
+| 2:45 | Point at **Try another change** and the numbers row | "Every consequence here came from copies of the graph. The model reads messages; it doesn't decide what breaks." |
 | 2:55 | End | "Make consequential engineering decisions rehearsable before they become production changes." |
 
 Keep out of the main video: agent names, every screen in the workspace, integrations, the eval table. They're for
