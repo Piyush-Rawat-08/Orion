@@ -333,7 +333,7 @@ second path was skipped because the service was already in the frontier. So it s
 break, along with everything depending on it. My equivalence test couldn't catch it, because both sides of that test
 call the same walk. The fix walks a service again whenever a more severe path turns up (severity only rises, so it
 still ends on cycles), and a new test checks the walk against brute force over every simple path on 300 random graphs.
-None of Corvane's 25 services has that shape, so no number in this post moved, but the engine was wrong until then.
+None of Corvane's 25 running services has that shape, so no number in this post moved, but the engine was wrong until then.
 
 **Giving every visitor their own company, on 100 MB.** The demo's best moment changes the company: a message closes a
 fact and an answer goes stale. On one shared company the second visitor found the story already told. So each browser
