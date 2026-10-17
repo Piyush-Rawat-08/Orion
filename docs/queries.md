@@ -7,7 +7,7 @@ Read tools run them through `GRAPH.RO_QUERY`, so none of them can write. Generat
 
 ## `knowledge_orphans`
 
-Used by `departures`, `tools`, `universe`.
+Used by `departures`, `planner`, `tools`, `universe`.
 
 ```cypher
 MATCH (s:Service) WHERE NOT ()-[:KNOWS]->(s)
@@ -139,7 +139,7 @@ RETURN DISTINCT c.uid AS uid, c.name AS customer, c.tier AS tier, s.uid AS servi
 
 ## `stranded_clusters`
 
-Used by `departures`, `universe`.
+Used by `departures`, `planner`, `universe`.
 
 ```cypher
 CALL algo.WCC({nodeLabels: ['Service', 'Person', 'Team'],
@@ -374,7 +374,7 @@ Used by `blackboard`.
 MATCH (x:Task) WHERE x.kind IN $kinds AND x.status = 'open' AND x.attempts < $max
 WITH x ORDER BY x.created_at LIMIT 1
 SET x.status = 'claimed', x.claimed_by = $agent, x.claimed_at = $now, x.attempts = x.attempts + 1
-RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload
+RETURN x.uid AS uid, x.kind AS kind, x.payload AS payload, x.attempts AS lease
 ```
 
 ## `repo_hidden_coupling`
