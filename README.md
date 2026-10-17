@@ -5,6 +5,9 @@
 A flight simulator for company decisions: rehearse a system change on a copy of the company, watch what breaks,
 find a better sequence, and see the recommendation change when the facts do. Nothing in production moves.
 
+How it works, and what broke building it: [The dependency nobody wrote down: copying a whole company in 60 ms with
+FalkorDB](https://sumitbhatt.hashnode.dev/the-dependency-nobody-wrote-down-copying-a-whole-company-in-60-ms-with-falkordb).
+
 Live: **https://orion-gamma-six.vercel.app**. A first visit opens on the guided rehearsal, about two minutes, run
 live in your own copy of Corvane (a made-up company; every person, system and customer is synthetic):
 
