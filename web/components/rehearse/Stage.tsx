@@ -824,7 +824,7 @@ export default function Stage() {
                 ))}
 
               {scene === "evidence" && (
-                <Panel key={news.started ? "reading" : "message"} title={news.started ? "What Orion did with it" : "Two days later, in #billing"}>
+                <Panel key={news.started ? "reading" : "message"} title={news.started ? "What Orion did with it" : "New in #billing"}>
                   {!news.started ? (
                     <>
                       <Bubble />

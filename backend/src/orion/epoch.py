@@ -118,6 +118,11 @@ COSTS = [
 ]
 
 
+def stamp(version: int, on: str, mode: str, today: bool = False) -> str:
+    """What an epoch was built from; a stored stamp that matches means the graph can be reused."""
+    return f"{version}|{on[:10] if today else on}|{mode}"
+
+
 def name_for(tenant: str, on: str, mode: str) -> str:
     return dbm.epoch(tenant, on, mode)
 
@@ -230,7 +235,8 @@ def _checkout(db: dbm.DB, tenant: str, on: str | None, mode: str) -> dict:
     else:
         on_date = on if len(on) > 10 else on[:10]
         name = name_for(tenant, on_date[:10], mode)
-    want = f"{dbm.version(db, tenant)}|{on_date}|{mode}"
+    # today's epoch is rebuilt when the record moves or the day turns, not every minute the clock advances
+    want = stamp(dbm.version(db, tenant), on_date, mode, today=on is None)
     if db.get(f"orion:epoch:{name}") == want and db.exists(name):
         return snapshot(db, name) | {"cached": True}
     with db.lock("epoch:" + name, ttl=120):

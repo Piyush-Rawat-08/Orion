@@ -242,7 +242,7 @@ function Repos() {
               >
                 {r.id === selected && <span className="absolute inset-y-2.5 left-0 w-[2px] rounded-full bg-ember" aria-hidden />}
                 <span className={`mono block truncate text-[12px] ${r.id === selected ? "text-ink" : "text-muted"}`}>{r.name}</span>
-                <span className="text-[11px] text-faint">updated {fmtDate(r.clock)}</span>
+                <span className="text-[11px] text-faint">updated {fmtDate(r.updated ?? r.clock)}</span>
               </button>
             </li>
           ))}

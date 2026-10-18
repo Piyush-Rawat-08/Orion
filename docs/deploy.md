@@ -33,6 +33,7 @@ instances sleep after 15 minutes without traffic; the first request after that t
    | `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD` | from step 1 |
    | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | your keys (`ORION_LLM` picks which one answers) |
    | `GITHUB_TOKEN` | a GitHub token with public read access, for the Codebases screen |
+   | `ORION_TZ` | optional: the time zone of the clock, default `Asia/Kolkata` |
 
    `ORION_SECRET` and `ORION_ADMIN_TOKEN` are generated; `ORION_CORS` is the Vercel address.
 3. When it is live, check `https://<your-api>.onrender.com/api/health` returns `{"ok": true, ...}`.

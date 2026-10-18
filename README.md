@@ -257,6 +257,11 @@ runs a system, a group that works across three teams, two records that disagree,
 deep, and a retired system. No real people or private data are used. Repository tenants contain only public GitHub
 metadata.
 
+Time is real. A company's "now" is the current time (`ORION_TZ`, India by default), never earlier than its latest
+record: Corvane's history runs to 1 October 2026, and every message, approval and answer since is stamped when it
+happens. Who knows a system is computed over the 180 days before now, so it moves as the days pass. `ORION_NOW` pins
+the clock (for example `ORION_NOW=2026-10-01T09:00`) when a run has to be reproduced exactly.
+
 ## AI use
 
 Orion was built with an AI coding assistant (Claude, in Claude Code), as Graph Hacks rule 11 asks us to disclose.

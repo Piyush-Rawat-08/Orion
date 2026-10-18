@@ -52,7 +52,7 @@ export default function TimePage() {
   const tl = useFetch<Timeline>("/timeline");
   const t = tl.data;
   const start = t?.start ?? "2024-01-01";
-  const end = t ? t.now.slice(0, 10) : "2026-10-01";
+  const end = t ? t.now.slice(0, 10) : new Date().toISOString().slice(0, 10);
   const total = dayIndex(end, start);
 
   const stops: Stop[] = useMemo(() => {

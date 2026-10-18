@@ -307,7 +307,7 @@ def sync(db: dbm.DB, t: str) -> dict:
     meta = _meta(db, t)
     owner, repo = meta["owner"], meta["repo"]
     g = dbm.org(t)
-    clock = dbm.clock(db, t)
+    clock = dbm.recorded(db, t)
     info, prs = gh.pulls(owner, repo, clock[:16], 300, stop_at=meta["last_pr"])
     modules = meta["modules"]
     uid = {r["name"]: r["uid"] for r in db.ro(g, "MATCH (s:Service) RETURN s.name AS name, s.uid AS uid")}

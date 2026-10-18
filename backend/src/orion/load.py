@@ -180,7 +180,7 @@ def reset(db: dbm.DB, tenant: str = "corvane") -> dict:
     db.drop(f"orion:snap:epoch:{tenant}:")
     stats = load(db, corvane.build())
     built = ep.build(db, tenant, dbm.clock(db, tenant), "true", dbm.epoch(tenant))
-    db.set(f"orion:epoch:{dbm.epoch(tenant)}", f"{dbm.version(db, tenant)}|{dbm.clock(db, tenant)}|true")
+    db.set(f"orion:epoch:{dbm.epoch(tenant)}", ep.stamp(dbm.version(db, tenant), dbm.clock(db, tenant), "true", today=True))
     from orion import showcase
 
     # a visitor's first screen: the recorded sso-legacy answer, filed as Priya's last conversation

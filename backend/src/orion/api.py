@@ -269,7 +269,7 @@ def tenants(mine: str | None = None) -> list[dict]:
         if t not in TENANTS and t.startswith("gh-"):
             row = db.one(dbm.org(t), "MATCH (c:Company) RETURN c.name AS name")
             out.append({"id": t, "name": row["name"] if row else t[3:].replace("--", "/"), "kind": "repo",
-                        "clock": dbm.clock(db, t), "loaded": True})
+                        "clock": dbm.clock(db, t), "updated": dbm.recorded(db, t), "loaded": True})
     return out
 
 
@@ -358,7 +358,9 @@ def timeline(tenant: str, s: Session = Auth) -> dict:
                          UNION
                          MATCH (a:Service)-[r:DEPENDS_ON]->(b:Service) WHERE r.valid_to >= '2026-02-01' AND r.valid_to < '9999'
                          RETURN r.uid AS uid, r.valid_to AS at, a.name + ' → ' + b.name AS label, 'dependency ends' AS kind""")
-    return {"start": "2026-02-01", "now": dbm.clock(db, tenant), "months": [f"2026-{m:02d}-01" for m in range(2, 11)],
+    now = dbm.clock(db, tenant)
+    months = [f"{y}-{m:02d}-01" for y in range(2026, int(now[:4]) + 1) for m in range(1, 13)]
+    return {"start": "2026-02-01", "now": now, "months": [m for m in months if "2026-02-01" <= m <= now],
             "decisions": decisions, "events": sorted(events, key=lambda e: e["at"])}
 
 
@@ -881,7 +883,7 @@ def stats(tenant: str, s: Session = Auth) -> dict:
     return {"nodes": db.ro(g, "MATCH (n) RETURN labels(n)[0] AS label, count(n) AS n ORDER BY n DESC"),
             "relationships": db.one(g, "MATCH ()-[r]->() RETURN count(r) AS n")["n"],
             "graphs": [x for x in db.graphs() if own_graph(tenant, x)], "universes": len(us),
-            "copy_ms_median": copies[len(copies) // 2] if copies else None, "clock": dbm.clock(db, tenant),
+            "copy_ms_median": copies[len(copies) // 2] if copies else None, "clock": dbm.clock(db, tenant), "tz": dbm.TZ,
             "version": dbm.version(db, tenant), "workers": blackboard.live_workers(db, tenant)}
 
 

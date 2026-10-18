@@ -302,22 +302,41 @@ def memo() -> dict | None:
     return _MEMO.get()
 
 
+TZ = os.environ.get("ORION_TZ", "Asia/Kolkata")
+
+
+def wall() -> str:
+    """The real time in ORION_TZ, to the minute. ORION_NOW pins it, so tests and evals are reproducible."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return os.environ.get("ORION_NOW") or datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%dT%H:%M")
+
+
+def recorded(db: DB, t: str) -> str:
+    """The time of the tenant's latest record: where Corvane's history ends, a repository's last pull request, or the
+    last live event."""
+    return db.get(f"orion:{t}:clock") or ""
+
+
 def clock(db: DB, t: str) -> str:
-    """The tenant's 'now'. Corvane is pinned to a demo moment; live events move it forward a minute at a time."""
+    """The tenant's 'now': the real time, never earlier than its latest record."""
     m = _MEMO.get()
     if m is not None and ("clock", t) in m:
         return m[("clock", t)]
-    out = db.get(f"orion:{t}:clock") or "2026-10-01T09:00"
+    out = max(wall(), recorded(db, t))
     if m is not None:
         m[("clock", t)] = out
     return out
 
 
 def tick(db: DB, t: str, minutes: int = 1) -> str:
+    """The time of a new live event: now, and always after the event before it, so events keep their order."""
     from datetime import datetime, timedelta
 
-    now = datetime.fromisoformat(clock(db, t)) + timedelta(minutes=minutes)
-    v = now.strftime("%Y-%m-%dT%H:%M")
+    last = recorded(db, t)
+    after = (datetime.fromisoformat(last) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M") if last else ""
+    v = max(wall(), after)
     db.set(f"orion:{t}:clock", v)
     return v
 

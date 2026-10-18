@@ -16,6 +16,8 @@ import { useFetch } from "@/lib/hooks";
 import { fmtDate } from "@/lib/format";
 import type { Stats } from "@/lib/types";
 
+const TZ_SHORT: Record<string, string> = { "Asia/Kolkata": "IST", UTC: "UTC" };
+
 const RAIL_KEY = "orion.rail";
 const noop = () => () => {};
 
@@ -442,7 +444,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             ) : (
               <>
                 <span className="text-muted">Records as of</span>
-                <span className="tnum text-ink">{fmtDate(stats.data?.clock ?? tenant?.clock)}</span>
+                <span className="tnum text-ink">
+                  {fmtDate(stats.data?.clock ?? tenant?.clock)}
+                  {stats.data?.tz && <span className="text-muted"> {TZ_SHORT[stats.data.tz] ?? stats.data.tz}</span>}
+                </span>
                 {!online && <span className="text-bad">offline</span>}
               </>
             )}

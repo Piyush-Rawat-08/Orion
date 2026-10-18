@@ -83,7 +83,10 @@ export interface Tenant {
   name: string;
   kind: string;
   description?: string;
+  /** now: the real time, never earlier than the latest record */
   clock: string;
+  /** a repository's latest pull request */
+  updated?: string;
   loaded: boolean;
   /** this browser's own copy of the demo company */
   personal?: boolean;
@@ -431,6 +434,8 @@ export interface Stats {
   universes: number;
   copy_ms_median: number | null;
   clock: string;
+  /** the time zone the clock is in */
+  tz?: string;
   version: number;
   workers: number;
 }
