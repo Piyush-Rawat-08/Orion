@@ -167,6 +167,38 @@ a sentence that names something its check didn't cover is **partly checked**; a 
 Models: Claude Haiku 5.5 by default (`ORION_LLM=anthropic`), or Gemini (`ORION_LLM=gemini`). Without a key,
 everything except asking and reading new messages in plain words still works.
 
+## TinyFish Web Agents: Autonomous Dependency Discovery
+
+> **"Find the dependencies nobody wrote down."**
+> Most system failures happen because critical dependencies live inside admin consoles without APIs, vendor deprecation notices, or outdated chat threads. TinyFish web agents (**Scouts**) act as autonomous explorers that bridge this gap, bringing real-world external truth directly into Orion's company graph.
+
+### TinyFish Scouts: Four Core Jobs
+
+TinyFish powers four specialized Scout agents across the lifecycle of a system change:
+
+| Scout | TinyFish API | Job & Responsibility |
+|---|---|---|
+| **Console Scout** | **Agent API** | **Reads admin consoles:** Signs in to identity providers (e.g., Okta, Auth0) and cloud consoles with saved profiles, discovering and mapping which applications use which logins, credentials, or keys. *(Fixes Problem 1: Nobody has the full map)* |
+| **Reality Check** | **Agent API (`run-sse`)** | **Confirms facts before approval:** Prior to approving any migration or retirement, re-opens the live console behind every dependency on the risk path to verify that assumptions still hold today. *(Fixes Problem 4: Answers go stale or are guessed)* |
+| **Watch Scout** | **Search + Fetch** | **Watches external vendors:** Continuously monitors vendor changelogs, deprecation notices, and status pages. A vendor's announced sunset date automatically triggers an automated rehearsal on its own. |
+| **Vendor Brief** | **Research API** | **Briefs the replacement:** Before an architectural migration is accepted, compiles a comprehensive, sourced research report on the target system—detailing limits, pricing, and feature gaps. |
+
+### How TinyFish Integrates with Orion
+
+Scouts plug directly into the path that chat and code changes already take—no architectural rewrite required:
+
+1. **TinyFish `run-sse`**: Dispatches web agents with a target URL, goal, and output schema with saved login credentials, streaming back live step-by-step progress.
+2. **Typed Facts Extraction**: Extracts verifiable, typed relationships (`depends_on`, `uses_login`, `owns`) annotated with provenance: source URL and execution run ID.
+3. **Sentinel Agent Ingestion**: The Sentinel agent assesses the provenance and source credibility, then either applies the fact directly to the graph, queues it for review by the owning team, or flags contradictions.
+4. **Reactive Re-checks & Rehearsals**: When a Scout updates or invalidates a fact, Orion instantly flags stale previous answers and triggers simulated rehearsals across affected universe copies.
+
+### Key Use Cases Enabled by TinyFish Scouts
+- **Retire or Migrate a System**: Map unlisted dependencies from identity providers and cloud consoles before pulling the plug.
+- **Vendor Sunsets & Deprecations**: Detect API deprecation warnings or vendor sunset timelines before they cause production outages.
+- **Pre-Approval Reality Check**: Verify live console configurations immediately prior to signing off on high-blast-radius changes.
+- **Tool Consolidation & System Replacement**: Compare existing system usage against replacement options with automated vendor briefs.
+- **Post-Incident Analysis ("Would we have caught it?")**: Ensure unwritten dependencies discovered during outages are verified and continuously watched.
+
 ## Run it
 
 Requirements: Docker, [uv](https://docs.astral.sh/uv/), Node 22 and pnpm.
